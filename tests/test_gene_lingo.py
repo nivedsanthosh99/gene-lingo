@@ -28,3 +28,12 @@ def test_orthologs(monkeypatch):
     assert res["TP53"][0]["id"] == "ENSMUSG00000059552"
     assert res["TP53"][0]["symbol"] == "Trp53"
     assert orthologs(["TP53"], "human", "mouse", "one2many")["TP53"] == []
+
+
+def test_translate(monkeypatch):
+    from gene_lingo.pipeline import translate
+    monkeypatch.setattr(http, "request_json", fake)
+    r = translate(["TP53"], "human", "mouse", "symbol", "symbol")
+    assert r[0]["output_id"] == "Trp53" and r[0]["output_species"] == "mus_musculus"
+    r = translate(["TP53", "NOPE"], "human", "human", "auto", "entrez")
+    assert [x["output_id"] for x in r] == ["7157", ""]

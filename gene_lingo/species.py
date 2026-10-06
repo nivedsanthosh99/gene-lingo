@@ -1,7 +1,7 @@
 """Species name resolution: common name / Latin name / taxid -> (taxid, ensembl name)."""
 
 # common name, taxid, ensembl species name
-_SPECIES = [
+SPECIES = [
     ("human", 9606, "homo_sapiens"),
     ("mouse", 10090, "mus_musculus"),
     ("rat", 10116, "rattus_norvegicus"),
@@ -27,7 +27,7 @@ def resolve(species):
     """Return (taxid, ensembl_name). Accepts 'mouse', 'Mus musculus', 'mus_musculus', 10090."""
     key = str(species).strip().lower().replace("_", " ")
     key = _ALIASES.get(key, key)
-    for common, taxid, ens in _SPECIES:
+    for common, taxid, ens in SPECIES:
         if key in (common, str(taxid), ens.replace("_", " ")):
             return taxid, ens
-    raise ValueError(f"Unknown species {species!r}; known: {', '.join(s[0] for s in _SPECIES)}")
+    raise ValueError(f"Unknown species {species!r}; known: {', '.join(s[0] for s in SPECIES)}")

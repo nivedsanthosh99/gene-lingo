@@ -23,3 +23,12 @@ gene-lingo orthologs TP53 -s human -t zebrafish --type one2one
 Species: human, mouse, rat, zebrafish, fly, worm, yeast, chicken, pig, cow, dog, macaque, chimpanzee, frog (or Latin name / taxid); extend `gene_lingo/species.py`.
 
 Tests: `pip install pytest && pytest` (network is mocked).
+
+## Web UI
+
+```
+pip install -e ".[ui]"
+streamlit run app.py
+```
+
+Pick input/output species and ID types, paste genes or upload a CSV, and download the results table as CSV. Same species = ID conversion; different species = ortholog lookup, with the orthologs shown in your chosen output ID type.
