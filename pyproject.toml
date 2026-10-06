@@ -1,0 +1,16 @@
+[project]
+name = "gene-lingo"
+version = "0.1.0"
+description = "Convert gene identifiers between nomenclatures and find orthologs across species"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+gene-lingo = "gene_lingo.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["gene_lingo"]
