@@ -49,5 +49,5 @@ if st.button("Run", type="primary", disabled=not genes):
         st.write(f"**{mapped} of {df['input'].nunique()}** genes mapped")
         st.dataframe(df.style.apply(
             lambda r: ["background-color: #fdd" if r["output_id"] == "" else "" for _ in r], axis=1),
-            use_container_width=True, hide_index=True)
+            width="stretch", hide_index=True)
         st.download_button("Download CSV", df.to_csv(index=False), "gene_lingo_results.csv", "text/csv")

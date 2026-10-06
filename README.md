@@ -31,4 +31,6 @@ pip install -e ".[ui]"
 streamlit run app.py
 ```
 
+The sidebar has a **How it works** page with the full flowchart, API calls and formats.
+
 Pick input/output species and ID types, paste genes or upload a CSV, and download the results table as CSV. Same species = ID conversion; different species = ortholog lookup, with the orthologs shown in your chosen output ID type.

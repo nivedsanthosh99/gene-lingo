@@ -6,7 +6,7 @@ requires-python = ">=3.9"
 dependencies = []
 
 [project.optional-dependencies]
-ui = ["streamlit>=1.30", "pandas"]
+ui = ["streamlit>=1.50", "pandas"]
 
 [project.scripts]
 gene-lingo = "gene_lingo.cli:main"
