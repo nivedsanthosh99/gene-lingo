@@ -1,6 +1,7 @@
 import argparse
 import csv
 import sys
+import urllib.error
 
 from . import convert, orthologs, ID_TYPES
 
@@ -48,5 +49,12 @@ def main(argv=None):
                             h.get("type", ""), h.get("perc_id", "")])
 
 
+def run():
+    try:
+        main()
+    except (urllib.error.URLError, ValueError) as e:
+        sys.exit(f"gene-lingo: {e}")
+
+
 if __name__ == "__main__":
-    main()
+    run()

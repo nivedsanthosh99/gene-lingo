@@ -9,7 +9,7 @@ dependencies = []
 ui = ["streamlit>=1.50", "pandas"]
 
 [project.scripts]
-gene-lingo = "gene_lingo.cli:main"
+gene-lingo = "gene_lingo.cli:run"
 
 [build-system]
 requires = ["setuptools>=61"]
