@@ -20,14 +20,14 @@ FTP = "https://ftp.ncbi.nlm.nih.gov/genomes/all"
 # key -> species, assembly the OSDR processing used (or, for raw-only studies, the
 # matching reference strain), OSD studies whose locus tags it covers
 GENOMES = {
-    "paer_pao1": dict(species="Pseudomonas aeruginosa", acc="GCF_000006765.1", osds=[14, 15]),
-    "paer_pa14": dict(species="Pseudomonas aeruginosa", acc="GCF_000014625.1", osds=[554]),
-    "bsub_168": dict(species="Bacillus subtilis", acc="GCF_000009045.1", osds=[138, 185, 215, 216]),
-    "saur_uams1": dict(species="Staphylococcus aureus", acc="GCA_000788115.1", osds=[145]),
-    "ecol_k12": dict(species="Escherichia coli", acc="GCF_000005845.2", osds=[43]),
-    "ecol_39282": dict(species="Escherichia coli", acc="GCF_900699165.1", osds=[95]),
-    "ecol_rel606": dict(species="Escherichia coli", acc="GCF_000017985.1", osds=[728]),
-    "rrub_11170": dict(species="Rhodospirillum rubrum", acc="GCF_000013085.1", osds=[31, 39]),
+    "paer_pao1": dict(label="P. aeruginosa PAO1", species="Pseudomonas aeruginosa", acc="GCF_000006765.1", osds=[14, 15]),
+    "paer_pa14": dict(label="P. aeruginosa PA14", species="Pseudomonas aeruginosa", acc="GCF_000014625.1", osds=[554]),
+    "bsub_168": dict(label="B. subtilis 168", species="Bacillus subtilis", acc="GCF_000009045.1", osds=[138, 185, 215, 216]),
+    "saur_uams1": dict(label="S. aureus UAMS-1", species="Staphylococcus aureus", acc="GCA_000788115.1", osds=[145]),
+    "ecol_k12": dict(label="E. coli K-12 MG1655", species="Escherichia coli", acc="GCF_000005845.2", osds=[43]),
+    "ecol_39282": dict(label="E. coli 39282_E01-4", species="Escherichia coli", acc="GCF_900699165.1", osds=[95]),
+    "ecol_rel606": dict(label="E. coli B REL606", species="Escherichia coli", acc="GCF_000017985.1", osds=[728]),
+    "rrub_11170": dict(label="R. rubrum ATCC 11170", species="Rhodospirillum rubrum", acc="GCF_000013085.1", osds=[31, 39]),
 }
 HUB = "bsub_168"
 
@@ -76,14 +76,28 @@ def _read_fasta(path):
     return {k: "".join(v) for k, v in seqs.items()}
 
 
-class Proteome:
-    """CDS records of one genome: locus_tag -> {protein_id, seq, symbol, product, old, geneid}."""
+class GeneTable:
+    """Protein-coding genes of one genome: locus_tag -> {protein_id, symbol, product, old, geneid, ...}."""
+
+    def __init__(self, key, cds):
+        self.key, self.cds = key, cds
+        self.alias = {}  # alternative locus tags / old tags / punctuation variants -> canonical tag
+        for tag, rec in cds.items():
+            for alt in (tag, *rec["old"], tag.replace("_", "")):
+                self.alias.setdefault(alt, tag)
+        self.geneid = {r["geneid"]: t for t, r in cds.items() if r["geneid"]}
+
+    def resolve(self, name):
+        """Map a locus tag as written in a dataset (current, old, or underscore-less) to the canonical one."""
+        return self.alias.get(name) or self.alias.get(name.replace("_", ""))
+
+
+class Proteome(GeneTable):
+    """GeneTable parsed from an NCBI GFF + protein FASTA; each record also has the protein `seq`."""
 
     def __init__(self, key, gff_path, faa_path):
-        self.key = key
         seqs = _read_fasta(faa_path)
-        gene_info = {}
-        self.cds = {}
+        gene_info, cds = {}, {}
         with gzip.open(gff_path, "rt") as fh:
             for line in fh:
                 if line.startswith("#"):
@@ -94,25 +108,18 @@ class Proteome:
                 a = _attrs(f[8])
                 if f[2] == "CDS":
                     pid, tag = a.get("protein_id"), a.get("locus_tag")
-                    if not (pid and tag) or pid not in seqs or tag in self.cds:
+                    if not (pid and tag) or pid not in seqs or tag in cds:
                         continue
-                    self.cds[tag] = dict(protein_id=pid, seq=seqs[pid], product=a.get("product", ""))
+                    cds[tag] = dict(protein_id=pid, seq=seqs[pid], product=a.get("product", ""))
                 else:
                     gene_info[a.get("locus_tag")] = a
-        self.alias = {}  # alternative locus tags / old tags / punctuation variants -> canonical tag
-        for tag, rec in self.cds.items():
+        for tag, rec in cds.items():
             g = gene_info.get(tag, {})
             rec["symbol"] = g.get("gene", "")
             rec["old"] = [x for x in g.get("old_locus_tag", "").split(",") if x]
             m = re.search(r"GeneID:(\d+)", g.get("Dbxref", ""))
             rec["geneid"] = m.group(1) if m else ""
-            for alt in (tag, *rec["old"], tag.replace("_", "")):
-                self.alias.setdefault(alt, tag)
-        self.geneid = {r["geneid"]: t for t, r in self.cds.items() if r["geneid"]}
-
-    def resolve(self, name):
-        """Map a locus tag as written in a dataset (current, old, or underscore-less) to the canonical one."""
-        return self.alias.get(name) or self.alias.get(name.replace("_", ""))
+        super().__init__(key, cds)
 
     def write_fasta(self, path):
         with open(path, "w") as fh:
@@ -225,6 +232,7 @@ def species_core(hub_map):
 def write_tables(outdir, prot, hub_map, pair, hub=HUB):
     """hub.tsv (one row per hub CDS), core.tsv, and pairs/<a>__<b>.tsv for every genome pair."""
     os.makedirs(os.path.join(outdir, "pairs"), exist_ok=True)
+    write_genes(outdir, prot)
     keys = list(hub_map)
     with open(os.path.join(outdir, "hub.tsv"), "w") as fh:
         w = csv.writer(fh, delimiter="\t", lineterminator="\n")
@@ -242,15 +250,108 @@ def write_tables(outdir, prot, hub_map, pair, hub=HUB):
             w.writerows((x, y, f"{pid:.1f}") for x, (y, pid) in m.items())
 
 
-def load_pair(outdir, a, b_):
-    """Read pairs/<a>__<b>.tsv (either order) -> {tag_a: tag_b}."""
+def write_genes(outdir, prot):
+    """genes.tsv.gz: every protein-coding gene of every genome, with its alternative names."""
+    with gzip.open(os.path.join(outdir, "genes.tsv.gz"), "wt") as fh:
+        w = csv.writer(fh, delimiter="\t", lineterminator="\n")
+        w.writerow(["genome", "locus_tag", "old_locus_tags", "symbol", "product", "protein_id", "geneid"])
+        for key, p in prot.items():
+            for tag, r in p.cds.items():
+                w.writerow([key, tag, ";".join(r["old"]), r["symbol"], r["product"], r["protein_id"], r["geneid"]])
+
+
+def load_genes(outdir):
+    """Read genes.tsv.gz -> {genome key: GeneTable} (no sequences, no network needed)."""
+    cds = {}
+    with gzip.open(os.path.join(outdir, "genes.tsv.gz"), "rt") as fh:
+        for r in csv.DictReader(fh, delimiter="\t"):
+            cds.setdefault(r["genome"], {})[r["locus_tag"]] = dict(
+                old=[x for x in r["old_locus_tags"].split(";") if x], symbol=r["symbol"], product=r["product"],
+                protein_id=r["protein_id"], geneid=r["geneid"])
+    return {k: GeneTable(k, v) for k, v in cds.items()}
+
+
+def load_pair_scored(outdir, a, b_):
+    """Read pairs/<a>__<b>.tsv (either order) -> {tag_a: (tag_b, pident)}."""
     for x, y, swap in ((a, b_, False), (b_, a, True)):
         path = os.path.join(outdir, "pairs", f"{x}__{y}.tsv")
         if os.path.exists(path):
             with open(path) as fh:
                 rows = list(csv.reader(fh, delimiter="\t"))[1:]
-            return {r[1]: r[0] for r in rows} if swap else {r[0]: r[1] for r in rows}
+            return {r[1]: (r[0], float(r[2])) for r in rows} if swap else {r[0]: (r[1], float(r[2])) for r in rows}
     raise KeyError(f"no mapping between {a} and {b_} in {outdir}")
+
+
+def load_pair(outdir, a, b_):
+    """Read pairs/<a>__<b>.tsv (either order) -> {tag_a: tag_b}."""
+    return {k: v[0] for k, v in load_pair_scored(outdir, a, b_).items()}
+
+
+def resolve_input(name, key, genes):
+    """Canonical locus tags (usually one) for a dataset identifier of genome `key`.
+
+    Accepts current/old locus tags, array probe ids of the OSDs on that genome, and Entrez gene ids
+    (the 'id1|id2' form in the OSD-43 tables).
+    """
+    name = name.strip()
+    g = genes[key]
+    if hit := g.resolve(name):
+        return [hit]
+    for osd in GENOMES[key]["osds"]:
+        if hit := probe_to_locus(osd, name, g):
+            return [hit]
+    return entrez_to_locus(name, g)
+
+
+def detect_genome(names, genes, candidates=None):
+    """Genome key in which the most of `names` resolve (None if nothing resolves anywhere)."""
+    names = [n for n in names if n.strip()][:500]
+    scores = {k: sum(bool(resolve_input(n, k, genes)) for n in names) for k in (candidates or genes)}
+    best = max(scores, key=scores.get)
+    return best if scores[best] else None
+
+
+class Mapper:
+    """Translate dataset identifiers between genomes using the tables written by `build`."""
+
+    def __init__(self, outdir):
+        self.outdir = outdir
+        self.genes = load_genes(outdir)
+        self._pairs, self._hub_of = {}, {}
+
+    def pair(self, a, b_):
+        if (a, b_) not in self._pairs:
+            self._pairs[(a, b_)] = load_pair_scored(self.outdir, a, b_)
+        return self._pairs[(a, b_)]
+
+    def hub_tag(self, key, tag, hub=HUB):
+        if key == hub:
+            return tag
+        if key not in self._hub_of:
+            self._hub_of[key] = {t: v[0] for t, v in self.pair(key, hub).items()}
+        return self._hub_of[key].get(tag, "")
+
+    def map(self, names, src, dsts):
+        """One row per (input, resolved gene) with the hub gene and, per target genome, tag + % identity."""
+        rows = []
+        for name in names:
+            tags = resolve_input(name, src, self.genes) or [None]
+            for tag in tags:
+                rec = self.genes[src].cds.get(tag, {})
+                row = {"input": name, "locus_tag": tag or "", "symbol": rec.get("symbol", ""),
+                       "product": rec.get("product", ""), "bsub_168_hub": self.hub_tag(src, tag) if tag else ""}
+                for d in dsts:
+                    hit = None if not tag else (tag, 100.0) if d == src else self.pair(src, d).get(tag)
+                    row[d] = hit[0] if hit else ""
+                    row[f"{d}_pident"] = round(hit[1], 1) if hit else None
+                    row[f"{d}_symbol"] = self.genes[d].cds[hit[0]]["symbol"] if hit else ""
+                rows.append(row)
+        return rows
+
+    def hub_table(self):
+        """The hub.tsv rows as dicts (one per B. subtilis gene)."""
+        with open(os.path.join(self.outdir, "hub.tsv")) as fh:
+            return list(csv.DictReader(fh, delimiter="\t"))
 
 
 def translate(tags, src, dst, pair_map, proteome=None):
