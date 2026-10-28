@@ -1,4 +1,3 @@
-import gzip
 import random
 import shutil
 
@@ -6,33 +5,7 @@ import pytest
 
 from gene_lingo import bacteria
 
-AA = "ACDEFGHIKLMNPQRSTVWY"
-
-
-def prot_seq(rng, n=150):
-    return "".join(rng.choice(AA) for _ in range(n))
-
-
-def mutate(rng, s, frac):
-    return "".join(rng.choice(AA) if rng.random() < frac else c for c in s)
-
-
-def make_genome(tmp_path, key, genes):
-    """genes: [(locus_tag, old_tag, symbol, seq)] -> Proteome built from a synthetic GFF + FASTA."""
-    gff, faa = tmp_path / f"{key}.gff.gz", tmp_path / f"{key}.faa.gz"
-    with gzip.open(gff, "wt") as g, gzip.open(faa, "wt") as f:
-        g.write("##gff-version 3\n")
-        for i, (tag, old, sym, seq) in enumerate(genes):
-            attrs = f"ID=gene-{tag};Name={sym};gene={sym};gbkey=Gene;locus_tag={tag}"
-            if old:
-                attrs += f";old_locus_tag={old}"
-            attrs += f";Dbxref=GeneID:{1000 + i}"
-            g.write(f"chr\tRefSeq\tgene\t{i*1000+1}\t{i*1000+450}\t.\t+\t.\t{attrs}\n")
-            g.write(f"chr\tRefSeq\tCDS\t{i*1000+1}\t{i*1000+450}\t.\t+\t0\tID=cds-{tag};Parent=gene-{tag};"
-                    f"locus_tag={tag};protein_id=P_{tag};product=prod%20{sym}\n")
-            f.write(f">P_{tag} prod {sym}\n{seq}\n")
-        g.write(f"chr\tRefSeq\tpseudogene\t90000\t90300\t.\t+\t.\tID=gene-PSEUDO;locus_tag=PSEUDO\n")
-    return bacteria.Proteome(key, gff, faa)
+from helpers import make_genome, mutate, prot_seq
 
 
 @pytest.fixture
@@ -81,13 +54,13 @@ def test_genome_for_osd():
 @pytest.mark.skipif(not shutil.which("diamond"), reason="diamond not installed")
 def test_rbh_and_tables(genomes, tmp_path, monkeypatch):
     a, b = genomes
-    monkeypatch.setitem(bacteria.GENOMES, "B", dict(species="Toy b", acc="", osds=[]))
+    toy = {"A": dict(label="A", species="Toy a", acc="", osds=[]), "B": dict(label="B", species="Toy b", acc="", osds=[])}
     m = bacteria.rbh(a, b, str(tmp_path / "w"), threads=1, sensitivity="sensitive")
     assert {k: v[0] for k, v in m.items()} == {"A_RS0": "B_001", "A_RS1": "B_002", "A_RS3": "B_003"}
     assert m["A_RS0"][1] == 100.0
 
     out = tmp_path / "out"
-    bacteria.write_tables(str(out), {"A": a, "B": b}, {"B": {k: (v[0], v[1]) for k, v in m.items()}}, {("A", "B"): m}, hub="A")
+    bacteria.write_tables(str(out), {"A": a, "B": b}, {"B": {k: (v[0], v[1]) for k, v in m.items()}}, {("A", "B"): m}, hub="A", genomes=toy)
     assert bacteria.load_pair(str(out), "A", "B")["A_RS1"] == "B_002"
     assert bacteria.load_pair(str(out), "B", "A")["B_002"] == "A_RS1"      # reverse direction
     rows = (out / "hub.tsv").read_text().splitlines()

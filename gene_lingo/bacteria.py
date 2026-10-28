@@ -1,17 +1,22 @@
-"""Locus-tag mapping between the bacterial genomes used by GeneLab/OSDR datasets.
+"""Locus-tag mapping between bacterial genomes (built for the GeneLab/OSDR datasets, works for any genomes).
 
-Orthology is computed from protein sequences (reciprocal best DIAMOND hits), never
-from names, and every result is keyed on the locus tags that appear in the OSDR
-count tables.  Everything is expressed through a hub genome (B. subtilis 168) and
-also directly for every pair of genomes.  Needs the `diamond` binary on PATH.
+Orthology is computed from protein sequences (reciprocal best DIAMOND hits), never from names, and every
+result is keyed on the locus tags of the annotation the data was processed with.  Everything is expressed
+through a hub genome and also directly for every pair of genomes.  Needs the `diamond` binary on PATH.
+
+`GENOMES` is the curated registry for the OSDR studies of five species; every function that takes
+`genomes=` accepts any registry {key: {label, species, acc, osds}} (see genomes.py and osdr.py for
+building one from names or from OSDR study ids).
 """
 import csv
 import gzip
 import itertools
+import json
 import os
 import re
 import shutil
 import subprocess
+import tempfile
 import urllib.parse
 import urllib.request
 
@@ -22,11 +27,11 @@ FTP = "https://ftp.ncbi.nlm.nih.gov/genomes/all"
 GENOMES = {
     "paer_pao1": dict(label="P. aeruginosa PAO1", species="Pseudomonas aeruginosa", acc="GCF_000006765.1", osds=[14, 15]),
     "paer_pa14": dict(label="P. aeruginosa PA14", species="Pseudomonas aeruginosa", acc="GCF_000014625.1", osds=[554]),
-    "bsub_168": dict(label="B. subtilis 168", species="Bacillus subtilis", acc="GCF_000009045.1", osds=[138, 185, 215, 216]),
+    "bsub_168": dict(label="B. subtilis 168", species="Bacillus subtilis", acc="GCF_000009045.1", osds=[138, 185, 215, 216], raw_only=[215, 216]),
     "saur_uams1": dict(label="S. aureus UAMS-1", species="Staphylococcus aureus", acc="GCA_000788115.1", osds=[145]),
     "ecol_k12": dict(label="E. coli K-12 MG1655", species="Escherichia coli", acc="GCF_000005845.2", osds=[43]),
-    "ecol_39282": dict(label="E. coli 39282_E01-4", species="Escherichia coli", acc="GCF_900699165.1", osds=[95]),
-    "ecol_rel606": dict(label="E. coli B REL606", species="Escherichia coli", acc="GCF_000017985.1", osds=[728]),
+    "ecol_39282": dict(label="E. coli ATCC 4157 (NCTC 86)", species="Escherichia coli", acc="GCF_900699165.1", osds=[95]),
+    "ecol_rel606": dict(label="E. coli B REL606", species="Escherichia coli", acc="GCF_000017985.1", osds=[728], raw_only=[728]),
     "rrub_11170": dict(label="R. rubrum ATCC 11170", species="Rhodospirillum rubrum", acc="GCF_000013085.1", osds=[31, 39]),
 }
 HUB = "bsub_168"
@@ -42,9 +47,15 @@ def genome_for_osd(osd):
 
 # ---- download ----------------------------------------------------------------
 
-def fetch_genome(key, cache):
-    """Download genomic.gff.gz and protein.faa.gz for GENOMES[key]; return their paths."""
-    acc = GENOMES[key]["acc"]
+def fetch_genome(key, cache, genomes=None):
+    """Download genomic.gff.gz and protein.faa.gz for genomes[key] (default GENOMES); return their paths.
+
+    A spec with local `gff` and `faa` paths (gzipped) is used as is, without any download.
+    """
+    spec = (genomes or GENOMES)[key]
+    if spec.get("gff") and spec.get("faa"):
+        return spec["gff"], spec["faa"]
+    acc = spec["acc"]
     folder = f"{FTP}/{acc[:3]}/{acc[4:7]}/{acc[7:10]}/{acc[10:13]}/"
     with urllib.request.urlopen(folder, timeout=60) as r:
         name = re.search(rf'href="({acc}_[^"/]+)/"', r.read().decode()).group(1)
@@ -184,18 +195,49 @@ def rbh(a, b, work, threads=4, min_cov=0.5, min_id=0.0, sensitivity="very-sensit
     return {q: (s, pid) for q, (s, _, pid) in fwd.items() if rev.get(s, (None,))[0] == q}
 
 
-def build(cache, work, keys=None, hub=HUB, **kw):
+def _cached_rbh(cache, specs, a, b, work, **kw):
+    """rbh() with results kept in <cache>/rbh keyed by assembly accession and thresholds, so adding a
+    genome to a set only computes the new pairs.  Local-file genomes are not cached."""
+    accs = [specs[k].get("acc") for k in (a.key, b.key)]
+    if not all(accs) or any(specs[k].get("gff") for k in (a.key, b.key)):
+        return rbh(a, b, work, **kw)
+    sig = f"c{kw.get('min_cov', 0.5)}_i{kw.get('min_id', 0.0)}_{kw.get('sensitivity', 'very-sensitive')}"
+    flip = accs[0] > accs[1]
+    x, y = (b, a) if flip else (a, b)
+    path = os.path.join(cache, "rbh", f"{min(accs)}__{max(accs)}__{sig}.tsv")
+    if os.path.exists(path):
+        with open(path) as fh:
+            rows = [(r[0], r[1], float(r[2])) for r in csv.reader(fh, delimiter="\t")]
+    else:
+        res = rbh(x, y, work, **kw)
+        rows = [(t, v[0], v[1]) for t, v in res.items()]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            csv.writer(fh, delimiter="\t", lineterminator="\n").writerows(rows)
+    return {t: (u, pid) for t, u, pid in rows} if not flip else {u: (t, pid) for t, u, pid in rows}
+
+
+def build(cache, work, keys=None, hub=HUB, genomes=None, hub_only=False, progress=None, **kw):
     """Run everything: returns (proteomes, hub_map, pair_map).
 
     hub_map[key][hub_tag] = (tag_in_key, pident); pair_map[(a, b)][tag_a] = (tag_b, pident)
+    `genomes` is a registry like GENOMES; with hub_only just the hub-vs-genome pairs are computed
+    (n-1 instead of n(n-1)/2 comparisons).  `progress(msg)` is called as work proceeds.
     """
     if not shutil.which("diamond"):
         raise RuntimeError("the `diamond` binary is required (apt install diamond-aligner)")
-    keys = list(keys or GENOMES)
-    prot = {k: Proteome(k, *fetch_genome(k, cache)) for k in keys}
+    specs = genomes or GENOMES
+    keys = list(keys or specs)
+    note = progress or (lambda msg: None)
+    prot = {}
+    for k in keys:
+        note(f"loading {specs[k].get('label', k)}")
+        prot[k] = Proteome(k, *fetch_genome(k, cache, specs))
     pair = {}
-    for a, b in itertools.combinations(keys, 2):
-        pair[(a, b)] = rbh(prot[a], prot[b], os.path.join(work, f"{a}__{b}"), **kw)
+    todo = [(hub, k) for k in keys if k != hub] if hub_only else list(itertools.combinations(keys, 2))
+    for i, (a, b) in enumerate(todo, 1):
+        note(f"orthologs {i}/{len(todo)}: {specs[a].get('label', a)} vs {specs[b].get('label', b)}")
+        pair[(a, b)] = _cached_rbh(cache, specs, prot[a], prot[b], os.path.join(work, f"{a}__{b}"), **kw)
     hub_map = {}
     for k in keys:
         if k == hub:
@@ -207,6 +249,18 @@ def build(cache, work, keys=None, hub=HUB, **kw):
     return prot, hub_map, pair
 
 
+def build_set(registry, outdir, cache, hub=None, hub_only=False, threads=4, progress=None, **kw):
+    """build() for any genome registry, then write_tables() into `outdir`.  The hub defaults to the first genome."""
+    if len(registry) < 2:
+        raise ValueError("need at least two genomes")
+    hub = hub if hub in registry else next(iter(registry))
+    with tempfile.TemporaryDirectory() as work:
+        prot, hub_map, pair = build(cache, work, hub=hub, genomes=registry, hub_only=hub_only,
+                                    progress=progress, threads=threads, **kw)
+    write_tables(outdir, prot, hub_map, pair, hub, registry)
+    return prot, hub_map, pair
+
+
 def hub_rows(prot, hub_map, hub=HUB):
     """One row per hub CDS: hub tag, symbol, product, then one ortholog tag per other genome."""
     keys = list(hub_map)
@@ -214,25 +268,29 @@ def hub_rows(prot, hub_map, hub=HUB):
         yield [tag, r["symbol"], r["product"]] + [hub_map[k].get(tag, ("",))[0] for k in keys]
 
 
-def core(hub_map, species=None):
+def core(hub_map, species=None, genomes=None):
     """Hub tags having an ortholog in every genome (or, with `species`, every listed species' genomes)."""
-    keys = [k for k in hub_map if species is None or GENOMES[k]["species"] in species]
+    keys = [k for k in hub_map if species is None or (genomes or GENOMES)[k]["species"] in species]
     sets = [set(hub_map[k]) for k in keys]
     return sorted(set.intersection(*sets)) if sets else []
 
 
-def species_core(hub_map):
+def species_core(hub_map, genomes=None):
     """Hub tags that have an ortholog in at least one genome of each species (strain-tolerant core)."""
+    specs = genomes or GENOMES
     by_species = {}
     for k in hub_map:
-        by_species.setdefault(GENOMES[k]["species"], set()).update(hub_map[k])
-    return sorted(set.intersection(*by_species.values()))
+        by_species.setdefault(specs[k]["species"], set()).update(hub_map[k])
+    return sorted(set.intersection(*by_species.values())) if by_species else []
 
 
-def write_tables(outdir, prot, hub_map, pair, hub=HUB):
-    """hub.tsv (one row per hub CDS), core.tsv, and pairs/<a>__<b>.tsv for every genome pair."""
+def write_tables(outdir, prot, hub_map, pair, hub=HUB, genomes=None):
+    """hub.tsv (one row per hub CDS), core.tsv, genes.tsv.gz, genomes.json and pairs/<a>__<b>.tsv."""
+    specs = genomes or GENOMES
     os.makedirs(os.path.join(outdir, "pairs"), exist_ok=True)
     write_genes(outdir, prot)
+    with open(os.path.join(outdir, "genomes.json"), "w") as fh:
+        json.dump({"hub": hub, "genomes": {k: specs[k] for k in prot}}, fh, indent=1)
     keys = list(hub_map)
     with open(os.path.join(outdir, "hub.tsv"), "w") as fh:
         w = csv.writer(fh, delimiter="\t", lineterminator="\n")
@@ -241,7 +299,7 @@ def write_tables(outdir, prot, hub_map, pair, hub=HUB):
     with open(os.path.join(outdir, "core.tsv"), "w") as fh:
         w = csv.writer(fh, delimiter="\t", lineterminator="\n")
         w.writerow([f"{hub}_locus_tag", "symbol", "product", *keys])
-        in_core = set(species_core(hub_map))
+        in_core = set(species_core(hub_map, specs))
         w.writerows(r for r in hub_rows(prot, hub_map, hub) if r[0] in in_core)
     for (a, b_), m in pair.items():
         with open(os.path.join(outdir, "pairs", f"{a}__{b_}.tsv"), "w") as fh:
@@ -287,7 +345,7 @@ def load_pair(outdir, a, b_):
     return {k: v[0] for k, v in load_pair_scored(outdir, a, b_).items()}
 
 
-def resolve_input(name, key, genes):
+def resolve_input(name, key, genes, genomes=None):
     """Canonical locus tags (usually one) for a dataset identifier of genome `key`.
 
     Accepts current/old locus tags, array probe ids of the OSDs on that genome, and Entrez gene ids
@@ -297,49 +355,89 @@ def resolve_input(name, key, genes):
     g = genes[key]
     if hit := g.resolve(name):
         return [hit]
-    for osd in GENOMES[key]["osds"]:
+    for osd in (genomes or GENOMES).get(key, {}).get("osds", []):
         if hit := probe_to_locus(osd, name, g):
             return [hit]
     return entrez_to_locus(name, g)
 
 
-def detect_genome(names, genes, candidates=None):
+def detect_genome(names, genes, candidates=None, genomes=None):
     """Genome key in which the most of `names` resolve (None if nothing resolves anywhere)."""
     names = [n for n in names if n.strip()][:500]
-    scores = {k: sum(bool(resolve_input(n, k, genes)) for n in names) for k in (candidates or genes)}
+    scores = {k: sum(bool(resolve_input(n, k, genes, genomes)) for n in names) for k in (candidates or genes)}
     best = max(scores, key=scores.get)
     return best if scores[best] else None
 
 
 class Mapper:
-    """Translate dataset identifiers between genomes using the tables written by `build`."""
+    """Translate dataset identifiers between genomes using the tables written by `build`.
+
+    Reads genomes.json for the genome registry and hub (falls back to GENOMES / HUB for older tables).
+    Genome arguments may be a key, a label, or an OSD study ("OSD-554", 554).
+    """
 
     def __init__(self, outdir):
         self.outdir = outdir
         self.genes = load_genes(outdir)
+        path = os.path.join(outdir, "genomes.json")
+        if os.path.exists(path):
+            with open(path) as fh:
+                meta = json.load(fh)
+            self.genomes, self.hub = meta["genomes"], meta["hub"]
+        else:
+            self.genomes, self.hub = {k: GENOMES[k] for k in self.genes}, HUB
         self._pairs, self._hub_of = {}, {}
 
+    def key_for(self, x):
+        """Genome key for a key, label or OSD study id."""
+        if x in self.genomes:
+            return x
+        for k, g in self.genomes.items():
+            if x == g.get("label"):
+                return k
+        m = re.fullmatch(r"(?:OSD-?|GLDS-?)?(\d+)", str(x).strip(), re.I)
+        if m:
+            for k, g in self.genomes.items():
+                if int(m.group(1)) in g.get("osds", []):
+                    return k
+        raise KeyError(f"unknown genome or study: {x}")
+
     def pair(self, a, b_):
+        """{tag_a: (tag_b, pident)}; pairs that were not computed (hub-only builds) go through the hub."""
         if (a, b_) not in self._pairs:
-            self._pairs[(a, b_)] = load_pair_scored(self.outdir, a, b_)
+            try:
+                self._pairs[(a, b_)] = load_pair_scored(self.outdir, a, b_)
+            except KeyError:
+                if self.hub in (a, b_):
+                    raise
+                to_b = load_pair_scored(self.outdir, self.hub, b_)          # hub tag -> (tag in b, pident)
+                self._pairs[(a, b_)] = {t: (to_b[h][0], min(p, to_b[h][1]))
+                                        for t, (h, p) in load_pair_scored(self.outdir, a, self.hub).items() if h in to_b}
         return self._pairs[(a, b_)]
 
-    def hub_tag(self, key, tag, hub=HUB):
-        if key == hub:
+    def hub_tag(self, key, tag):
+        if key == self.hub:
             return tag
         if key not in self._hub_of:
-            self._hub_of[key] = {t: v[0] for t, v in self.pair(key, hub).items()}
+            self._hub_of[key] = {t: v[0] for t, v in self.pair(key, self.hub).items()}
         return self._hub_of[key].get(tag, "")
+
+    def resolve(self, name, key):
+        return resolve_input(name, key, self.genes, self.genomes)
+
+    def detect(self, names, candidates=None):
+        return detect_genome(names, self.genes, candidates, self.genomes)
 
     def map(self, names, src, dsts):
         """One row per (input, resolved gene) with the hub gene and, per target genome, tag + % identity."""
+        src, dsts = self.key_for(src), [self.key_for(d) for d in dsts]
         rows = []
         for name in names:
-            tags = resolve_input(name, src, self.genes) or [None]
+            tags = self.resolve(name, src) or [None]
             for tag in tags:
                 rec = self.genes[src].cds.get(tag, {})
                 row = {"input": name, "locus_tag": tag or "", "symbol": rec.get("symbol", ""),
-                       "product": rec.get("product", ""), "bsub_168_hub": self.hub_tag(src, tag) if tag else ""}
+                       "product": rec.get("product", ""), "hub_gene": self.hub_tag(src, tag) if tag else ""}
                 for d in dsts:
                     hit = None if not tag else (tag, 100.0) if d == src else self.pair(src, d).get(tag)
                     row[d] = hit[0] if hit else ""
@@ -349,9 +447,11 @@ class Mapper:
         return rows
 
     def hub_table(self):
-        """The hub.tsv rows as dicts (one per B. subtilis gene)."""
+        """The hub.tsv rows as dicts (one per hub gene); the first column is called `locus_tag`."""
         with open(os.path.join(self.outdir, "hub.tsv")) as fh:
-            return list(csv.DictReader(fh, delimiter="\t"))
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        first = next(iter(rows[0])) if rows else None
+        return [{("locus_tag" if k == first else k): v for k, v in r.items()} for r in rows]
 
 
 def translate(tags, src, dst, pair_map, proteome=None):

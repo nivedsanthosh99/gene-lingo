@@ -1,0 +1,81 @@
+{
+ "hub": "bsub_168",
+ "genomes": {
+  "paer_pao1": {
+   "label": "P. aeruginosa PAO1",
+   "species": "Pseudomonas aeruginosa",
+   "acc": "GCF_000006765.1",
+   "osds": [
+    14,
+    15
+   ]
+  },
+  "paer_pa14": {
+   "label": "P. aeruginosa PA14",
+   "species": "Pseudomonas aeruginosa",
+   "acc": "GCF_000014625.1",
+   "osds": [
+    554
+   ]
+  },
+  "bsub_168": {
+   "label": "B. subtilis 168",
+   "species": "Bacillus subtilis",
+   "acc": "GCF_000009045.1",
+   "osds": [
+    138,
+    185,
+    215,
+    216
+   ],
+   "raw_only": [
+    215,
+    216
+   ]
+  },
+  "saur_uams1": {
+   "label": "S. aureus UAMS-1",
+   "species": "Staphylococcus aureus",
+   "acc": "GCA_000788115.1",
+   "osds": [
+    145
+   ]
+  },
+  "ecol_k12": {
+   "label": "E. coli K-12 MG1655",
+   "species": "Escherichia coli",
+   "acc": "GCF_000005845.2",
+   "osds": [
+    43
+   ]
+  },
+  "ecol_39282": {
+   "label": "E. coli ATCC 4157 (NCTC 86)",
+   "species": "Escherichia coli",
+   "acc": "GCF_900699165.1",
+   "osds": [
+    95
+   ]
+  },
+  "ecol_rel606": {
+   "label": "E. coli B REL606",
+   "species": "Escherichia coli",
+   "acc": "GCF_000017985.1",
+   "osds": [
+    728
+   ],
+   "raw_only": [
+    728
+   ]
+  },
+  "rrub_11170": {
+   "label": "R. rubrum ATCC 11170",
+   "species": "Rhodospirillum rubrum",
+   "acc": "GCF_000013085.1",
+   "osds": [
+    31,
+    39
+   ]
+  }
+ }
+}

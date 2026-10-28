@@ -1,0 +1,200 @@
+{
+ "hub": "GCF_000009045.1",
+ "genomes": {
+  "GCF_000009045.1": {
+   "label": "B. subtilis 168",
+   "species": "Bacillus subtilis",
+   "acc": "GCF_000009045.1",
+   "osds": [
+    81,
+    216,
+    215,
+    28,
+    185,
+    138
+   ],
+   "raw_only": [
+    81,
+    216,
+    215,
+    28
+   ]
+  },
+  "GCF_000005845.2": {
+   "label": "E. coli K-12 substr. MG1655",
+   "species": "Escherichia coli",
+   "acc": "GCF_000005845.2",
+   "osds": [
+    452,
+    43
+   ],
+   "raw_only": [
+    452
+   ]
+  },
+  "GCF_000006945.2": {
+   "label": "S. enterica LT2",
+   "species": "Salmonella enterica",
+   "acc": "GCF_000006945.2",
+   "osds": [
+    11,
+    323
+   ],
+   "raw_only": [
+    11,
+    323
+   ]
+  },
+  "GCF_000007465.2": {
+   "label": "S. mutans UA159",
+   "species": "Streptococcus mutans",
+   "acc": "GCF_000007465.2",
+   "osds": [
+    106,
+    987
+   ],
+   "raw_only": [
+    106,
+    987
+   ]
+  },
+  "GCF_000011805.1": {
+   "label": "A. fischeri ES114",
+   "species": "Aliivibrio fischeri",
+   "acc": "GCF_000011805.1",
+   "osds": [
+    119,
+    356
+   ],
+   "raw_only": [
+    119,
+    356
+   ]
+  },
+  "GCF_000020045.1": {
+   "label": "P. phymatum STM815",
+   "species": "Paraburkholderia phymatum",
+   "acc": "GCF_000020045.1",
+   "osds": [
+    810
+   ],
+   "raw_only": [
+    810
+   ]
+  },
+  "GCF_003391415.1": {
+   "label": "M. marinum 1218R",
+   "species": "Mycobacterium marinum",
+   "acc": "GCF_003391415.1",
+   "osds": [
+    528,
+    90
+   ],
+   "raw_only": [
+    528,
+    90
+   ]
+  },
+  "GCF_000422085.1": {
+   "label": "S. liquefaciens ATCC 27592",
+   "species": "Serratia liquefaciens",
+   "acc": "GCF_000422085.1",
+   "osds": [
+    305
+   ],
+   "raw_only": []
+  },
+  "GCF_000017985.1": {
+   "label": "E. coli REL606",
+   "species": "Escherichia coli",
+   "acc": "GCF_000017985.1",
+   "osds": [
+    728
+   ],
+   "raw_only": [
+    728
+   ]
+  },
+  "GCF_034298135.1": {
+   "label": "L. acidophilus ATCC 4356",
+   "species": "Lactobacillus acidophilus",
+   "acc": "GCF_034298135.1",
+   "osds": [
+    199
+   ],
+   "raw_only": [
+    199
+   ]
+  },
+  "GCF_000210855.2": {
+   "label": "S. enterica SL1344",
+   "species": "Salmonella enterica",
+   "acc": "GCF_000210855.2",
+   "osds": [
+    277
+   ],
+   "raw_only": [
+    277
+   ]
+  },
+  "GCF_000006765.1": {
+   "label": "P. aeruginosa PAO1",
+   "species": "Pseudomonas aeruginosa",
+   "acc": "GCF_000006765.1",
+   "osds": [
+    14,
+    15
+   ],
+   "raw_only": []
+  },
+  "GCF_900699165.1": {
+   "label": "E. coli NCTC86",
+   "species": "Escherichia coli",
+   "acc": "GCF_900699165.1",
+   "osds": [
+    95
+   ],
+   "raw_only": []
+  },
+  "GCF_000014625.1": {
+   "label": "P. aeruginosa UCBPP-PA14",
+   "species": "Pseudomonas aeruginosa",
+   "acc": "GCF_000014625.1",
+   "osds": [
+    554
+   ],
+   "raw_only": []
+  },
+  "GCA_000788115.1": {
+   "label": "GCA_000788115.1",
+   "species": "GCA_000788115.1",
+   "osds": [
+    145
+   ],
+   "acc": "GCA_000788115.1",
+   "raw_only": []
+  },
+  "GCF_000013085.1": {
+   "label": "R. rubrum ATCC 11170",
+   "species": "Rhodospirillum rubrum",
+   "acc": "GCF_000013085.1",
+   "osds": [
+    31
+   ],
+   "raw_only": [
+    31
+   ]
+  },
+  "GCF_022533485.1": {
+   "label": "B. contaminans B17-01563-1",
+   "species": "Burkholderia contaminans",
+   "acc": "GCF_022533485.1",
+   "osds": [
+    729
+   ],
+   "raw_only": [
+    729
+   ]
+  }
+ }
+}
