@@ -40,6 +40,7 @@ with right:
 
 st.header("Which page do you need?")
 rows = [
+    ("I want the short version: what it does, what it found, what is still unchecked", "summary", None),
     ("I want to understand the problem and the method", "species_explained", "strains_explained"),
     ("I have gene IDs from an OSDR bacterial study (*B. subtilis*, *P. aeruginosa*, *S. aureus*, *E. coli*, *R. rubrum*)", "species_lookup", None),
     ("I have a different OSDR study and want its genome found automatically", "species_osdr", None),

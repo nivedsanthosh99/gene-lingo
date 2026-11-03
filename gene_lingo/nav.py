@@ -6,6 +6,7 @@ import streamlit as st
 
 PAGES = {
     "home": ("views/home.py", "Start here", ":material/home:"),
+    "summary": ("views/summary.py", "Project summary", ":material/summarize:"),
     "species_explained": ("views/species_explained.py", "How species matching works", ":material/school:"),
     "species_lookup": ("views/species_lookup.py", "Look up genes across species", ":material/search:"),
     "species_custom": ("views/species_custom.py", "Compare your own genomes", ":material/biotech:"),
@@ -16,7 +17,7 @@ PAGES = {
     "converter_how": ("views/converter_how_it_works.py", "How the converter works", ":material/school:"),
 }
 SECTIONS = {
-    "Start": ["home"],
+    "Start": ["home", "summary"],
     "Bacteria: between species": ["species_explained", "species_lookup", "species_custom", "species_osdr"],
     "Bacteria: between strains": ["strains_explained", "strains_compare"],
     "Human & animal genes": ["converter", "converter_how"],

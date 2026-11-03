@@ -224,3 +224,14 @@ def test_compare_two_strains_page():
     assert {m.label: m.value for m in at.metric}["Shared"] == "3,889"
     at.selectbox[2].select("ecol_k12").run()                                                # same strain twice
     assert any("two different strains" in w.value for w in at.warning)
+
+
+def test_summary_page_numbers_are_live():
+    at = AppTest.from_file(str(VIEWS / "summary.py"), default_timeout=60).run()
+    assert not at.exception, at.exception
+    assert at.title[0].value == "Project summary"
+    m = {x.label: x.value for x in at.metric}
+    assert m["Core genes (all 5 species)"] == "488" and m["OSDR studies surveyed"] == "28" and m["Species / genomes"] == "5 / 8"
+    text = " ".join(x.value for x in at.markdown)
+    assert "9 validated" in text and "PAO1 and PA14 share 5,346 genes" in text
+    assert any("Not built" in " ".join(f.astype(str).values.ravel()) for f in [d.value for d in at.dataframe])      # open work is stated
