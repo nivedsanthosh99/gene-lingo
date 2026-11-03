@@ -65,7 +65,7 @@ For every pair of proteomes A and B:
 
 1. DIAMOND 2.1.9 `blastp`, `--very-sensitive`, e-value ≤ 1e-5, up to 5 hits per query, run in **both** directions.
 2. Keep only alignments whose length covers **≥ 50 % of the query and ≥ 50 % of the subject** (alignment length /
-   protein length). No identity cut-off is applied; percent identity is carried through as a quality column.
+   protein length; the alignment length also counts gap columns, so it can slightly exceed the number of aligned residues). No identity cut-off is applied; percent identity is carried through as a quality column.
 3. For each query take the highest-bitscore surviving hit.
 4. A pair (a, b) is an ortholog if b is a's best hit **and** a is b's best hit.
 

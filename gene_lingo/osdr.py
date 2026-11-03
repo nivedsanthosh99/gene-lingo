@@ -39,15 +39,18 @@ def _get(url, retries=3):
             time.sleep(2 ** attempt)
 
 
-def get_json(url, cache=None, max_age=7 * 86400):
+def get_json(url, cache=None, max_age=7 * 86400, progress=None):
     """JSON from the OSDR API; with `cache` (a directory) study metadata/file lists are kept on disk for a week."""
+    note = progress or (lambda msg: None)
     path = None
     if cache and re.search(r"/osd/(meta|files)/", url):
         os.makedirs(cache, exist_ok=True)
         path = os.path.join(cache, hashlib.md5(url.encode()).hexdigest() + ".json")
         if os.path.exists(path) and time.time() - os.path.getmtime(path) < max_age:
             with open(path) as fh:
+                note(f"    using the saved copy of {url}")
                 return json.load(fh)
+    note(f"    fetching {url}")
     data = json.loads(_get(url))
     if path:
         with open(path, "w") as fh:
@@ -122,10 +125,12 @@ PROCESSED = [  # (regex on file name, kind) in order of preference
 ]
 
 
-def describe(osd, cache=None):
+def describe(osd, cache=None, progress=None):
     """Everything useful about one study: organism(s), taxids, strain, assay, processed tables, genome hints."""
+    note = progress or (lambda msg: None)
     n = osd_number(osd)
-    meta, files = get_json(f"{API}/osd/meta/{n}", cache), get_json(f"{API}/osd/files/{n}", cache)
+    meta = get_json(f"{API}/osd/meta/{n}", cache, progress=note)
+    files = get_json(f"{API}/osd/files/{n}", cache, progress=note)
     info = parse_meta(meta, n)
     flist = files["studies"].get(f"OSD-{n}", {}).get("study_files", [])
     names = {f["file_name"]: f for f in flist}
@@ -134,17 +139,28 @@ def describe(osd, cache=None):
         tables += [(nm, kind) for nm in names if re.search(rx, nm)]
     info.update(osd=n, files=len(flist), tables=tables,
                 raw_only=not tables, urls={nm: BASE + f["remote_url"] for nm, f in names.items()})
+    note(f"    organism: {', '.join(info['organisms']) or 'not stated'}"
+         f"{' (NCBI taxon ' + ', '.join(info['taxa']) + ')' if info['taxa'] else ''}; "
+         f"strain: {', '.join(info['strains'][:3]) or 'not stated'}")
+    if info["accessions"]:
+        note(f"    assembly named in the study's description: {', '.join(info['accessions'])}")
+    note(f"    {len(flist):,} files in the study; gene tables: "
+         + (", ".join(t for t, _ in tables[:3]) if tables else "none (raw reads only, so the genome cannot be checked against identifiers)"))
     return info
 
 
-def table_ids(info, max_bytes=MAX_TABLE_BYTES, entrez=False):
+def table_ids(info, max_bytes=MAX_TABLE_BYTES, entrez=False, progress=None):
     """Gene identifiers from the study's best processed table, or None.  -> (ids, file_name, kind).
 
     With `entrez`, array tables give their Entrez gene ids (blank/NA dropped) instead of probe set ids."""
+    note = progress or (lambda msg: None)
     for name, kind in info["tables"]:
         size = int(_head_size(info["urls"][name]) or 0)
         if size > max_bytes:
+            note(f"    skipping {name}: {size / 1e6:.0f} MB is over the {max_bytes / 1e6:.0f} MB limit")
             continue
+        t = time.time()
+        note(f"    downloading gene table {name} ({size / 1e6:.2f} MB) from {info['urls'][name]}")
         raw = _get(info["urls"][name])
         if name.endswith(".gz"):
             raw = gzip.decompress(raw)
@@ -152,8 +168,12 @@ def table_ids(info, max_bytes=MAX_TABLE_BYTES, entrez=False):
         rows = list(csv.reader(io.StringIO(raw.decode("utf-8-sig", "replace")), delimiter=delim))
         if kind == "array":
             col = rows[0].index("ENTREZID" if entrez else "ProbesetID")
-            return [r[col] for r in rows[1:] if len(r) > col and r[col] not in ("", "NA")], name, kind
-        return [r[0] for r in rows[1:] if r and r[0]], name, kind
+            ids = [r[col] for r in rows[1:] if len(r) > col and r[col] not in ("", "NA")]
+        else:
+            ids = [r[0] for r in rows[1:] if r and r[0]]
+        note(f"    read {len(ids):,} {'Entrez ids' if entrez else 'identifiers'} in {time.time() - t:.1f} s; "
+             f"first: {', '.join(ids[:3])}")
+        return ids, name, kind
     return None
 
 
@@ -168,9 +188,9 @@ def _head_size(url):
 
 # ---- genome choice --------------------------------------------------------------
 
-def candidate_genomes(info, cache=None, index=None):
+def candidate_genomes(info, cache=None, index=None, progress=None):
     """[(acc, row_or_None, why)] best guess first: assembly named in the metadata, then taxon/strain matches."""
-    idx = index if index is not None else genomes.assembly_index(cache)
+    idx = index if index is not None else genomes.assembly_index(cache, progress=progress)
     out, seen = [], set()
 
     def add(acc, row, why):
@@ -205,6 +225,10 @@ def candidate_genomes(info, cache=None, index=None):
             add(row["acc"], row, "reference/representative genome of the species")
     for row in unremarkable:   # an arbitrary strain of the taxon is a last resort
         add(row["acc"], row, "NCBI taxon of the study")
+    if progress:
+        progress(f"    {len(out)} candidate genome(s) from the metadata and NCBI's assembly index:")
+        for i, (acc, row, why) in enumerate(out[:6], 1):
+            progress(f"      {i}. {acc} {(row or {}).get('organism', '')} {(row or {}).get('strain', '')}".rstrip() + f" ({why})")
     return out
 
 
@@ -214,30 +238,35 @@ def id_variants(i):
     return dict.fromkeys([i, base, base.split("_")[0]])
 
 
-def choose_genome(info, cache=None, work_cache=None, index=None, ids=None, entrez=None):
+def choose_genome(info, cache=None, work_cache=None, index=None, ids=None, entrez=None, progress=None):
     """Pick the genome for one study -> dict(acc, label, species, confidence, evidence, matched, n_ids).
 
     With identifiers (`ids`; `entrez` for arrays annotated with Entrez gene ids) each candidate is scored by how
     many of them it recognises, which separates strains and annotation versions; without, the best
     metadata/taxon match is returned, graded stated / strain / species / taxon.
     """
-    cands = candidate_genomes(info, cache, index)
+    note = progress or (lambda msg: None)
+    cands = candidate_genomes(info, cache, index, progress=note)
     if not cands:
+        note("    no candidate genome found")
         return None
     cache = work_cache or cache or genomes.default_cache()
     best, scored = None, []
     if ids or entrez:
         sample = [i for i in (ids or []) if i][:3000]
         esample = [e for e in (entrez or []) if e][:3000]
-        for acc, row, why in cands[:6]:
+        for ci, (acc, row, why) in enumerate(cands[:6], 1):
+            note(f"    checking candidate {ci}/{min(len(cands), 6)}: {acc} {(row or {}).get('organism', '')}".rstrip())
             try:
-                gff, faa = bacteria.fetch_genome(acc, cache, {acc: dict(acc=acc)})
-            except (urllib.error.URLError, AttributeError, OSError):
+                gff, faa = bacteria.fetch_genome(acc, cache, {acc: dict(acc=acc)}, progress=note)
+            except (urllib.error.URLError, AttributeError, OSError) as e:
+                note(f"      could not get its annotation ({e}); skipping")
                 continue
             g = bacteria.Proteome(acc, gff, faa)
             by_id = sum(any(g.resolve(v) for v in id_variants(i)) for i in sample), len(sample)
             by_entrez = sum(any(x in g.geneid for x in e.split("|")) for e in esample), len(esample)
             hit, n = max(by_id, by_entrez, key=lambda hn: hn[0] / hn[1] if hn[1] else 0)
+            note(f"      {hit:,} of {n:,} sampled identifiers are genes of {acc} ({hit / n:.0%})" if n else "      no identifiers to compare")
             if n:
                 scored.append((hit / n, hit, n, acc, row, why))
         best = max(scored, key=lambda x: x[0], default=None)
@@ -245,13 +274,17 @@ def choose_genome(info, cache=None, work_cache=None, index=None, ids=None, entre
         # identifiers about as well as the best one (multi-strain arrays recognise several genomes)
         for frac, hit, n, acc, row, why in scored:
             if best and frac >= max(MIN_MATCH, best[0] - TIE_MARGIN):
+                note(f"    chosen: {acc}, the first candidate within {TIE_MARGIN * 100:.0f} points of the best match "
+                     f"({best[0]:.0%}) and above the {MIN_MATCH:.0%} minimum; the name-based order breaks ties")
                 return _result(acc, row, "validated", f"{hit}/{n} identifiers found in genome ({why})", frac,
                                len(ids or entrez), info)
         best = (best[1], best[3], best[4], best[5], best[2]) if best else None
     acc, row, why = cands[0]
     conf = "stated" if why.startswith("assembly named") else "strain" if "strain" in why else "species" if "species" in why else "taxon"
-    note = why + (f"; no candidate matched the identifiers (best {best[0]}/{best[4]})" if best else "")
-    return _result(acc, row, conf, note, None, len(ids) if ids else 0, info)
+    why_not = why + (f"; no candidate matched the identifiers (best {best[0]}/{best[4]})" if best else "")
+    note(f"    chosen: {acc} on the metadata alone ({conf} match; nothing to check it against)" if not best
+         else f"    no candidate reached {MIN_MATCH:.0%}; falling back to {acc} on the metadata ({conf} match)")
+    return _result(acc, row, conf, why_not, None, len(ids) if ids else 0, info)
 
 
 def _result(acc, row, confidence, evidence, matched, n_ids, info):
@@ -327,20 +360,23 @@ def genomes_for(osds, cache=None, work_cache=None, progress=None, index=None):
     """Resolve several studies at once -> (registry {acc: spec with osds}, per-study choices {osd: pick}).
 
     Studies that share an assembly share a registry entry (so their identifiers map to the same genes)."""
-    idx = index if index is not None else genomes.assembly_index(cache)
     note = progress or (lambda m: None)
+    osds = list(osds)
+    total = len(osds) + 1
+    note(f"[1/{total}] Loading the NCBI assembly index")
+    idx = index if index is not None else genomes.assembly_index(cache, progress=note)
     registry, picks = {}, {}
-    for osd in osds:
+    for i, osd in enumerate(osds, 2):
         n = osd_number(osd)
-        note(f"reading OSD-{n}")
-        info = describe(n, os.path.join(cache or genomes.default_cache(), "osdr_json"))
+        note(f"[{i}/{total}] OSD-{n}: reading the study and choosing its genome")
+        info = describe(n, os.path.join(cache or genomes.default_cache(), "osdr_json"), progress=note)
         got = None
         try:
-            got = table_ids(info)
-        except (urllib.error.URLError, ValueError, OSError):
-            pass
-        ent = table_ids(info, entrez=True)[0] if got and got[2] == "array" else None
-        pick = choose_genome(info, cache, work_cache, idx, got[0] if got else None, ent)
+            got = table_ids(info, progress=note)
+        except (urllib.error.URLError, ValueError, OSError) as e:
+            note(f"    could not read the gene table ({e})")
+        ent = table_ids(info, entrez=True, progress=note)[0] if got and got[2] == "array" else None
+        pick = choose_genome(info, cache, work_cache, idx, got[0] if got else None, ent, progress=note)
         if pick is None:
             raise ValueError(f"OSD-{n}: could not find a genome for {info['organisms'] or 'this study'}")
         pick["info"] = info

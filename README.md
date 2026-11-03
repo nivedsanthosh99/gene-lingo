@@ -78,7 +78,7 @@ gene-lingo genomes build "Bacillus subtilis 168" GCF_000011805.1 taxid:1280 myge
 gene-lingo bacteria map -d out/ --from "B. subtilis 168" --to GCF_000011805.1 BSU_00010
 ```
 
-Finished ortholog comparisons are cached by assembly accession, so adding a genome only computes the new pairs; `--hub-only` compares each genome with the hub only (n-1 instead of n(n-1)/2) and other pairs are then derived through the hub.
+While a build or study look-up runs, the pages and the command line show a timestamped log of every step (which file is fetched from which URL, cache hits, DIAMOND alignments and counts, the choice of genome and why). On the pages the finished log stays on screen. Finished ortholog comparisons are cached by assembly accession, so adding a genome only computes the new pairs; `--hub-only` compares each genome with the hub only (n-1 instead of n(n-1)/2) and other pairs are then derived through the hub.
 
 ### 3. Any OSDR study (`gene-lingo osdr`, page *Any OSDR study*)
 

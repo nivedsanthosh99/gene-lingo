@@ -93,11 +93,11 @@ def test_describe_finds_processed_tables(monkeypatch):
     names = ["GLDS-9_rna_seq_FeatureCounts_Unnormalized_Counts_GLbulkRNAseq.csv", "GLDS-9_rna_seq_processed_md5sum_GLbulkRNAseq.tsv",
              "GLDS-9_rna-seq_GSE1_Raw_Gene_Counts.txt.gz", "GLDS-9_rna_seq_FeatureCounts_rRNArm_GLbulkRNAseq.tsv", "x_R1_raw.fastq.gz"]
     files = {"studies": {"OSD-9": {"study_files": [{"file_name": n, "remote_url": "/d/" + n} for n in names]}}}
-    monkeypatch.setattr(osdr, "get_json", lambda url, cache=None: meta() if "/meta/" in url else files)
+    monkeypatch.setattr(osdr, "get_json", lambda url, cache=None, progress=None: meta() if "/meta/" in url else files)
     info = osdr.describe("OSD-9")
     assert [t[0] for t in info["tables"]] == names[:3][:1] + [names[2]]      # md5sum and rRNArm tsv are not gene tables
     assert not info["raw_only"]
-    monkeypatch.setattr(osdr, "get_json", lambda url, cache=None: meta() if "/meta/" in url else {"studies": {"OSD-9": {"study_files": []}}})
+    monkeypatch.setattr(osdr, "get_json", lambda url, cache=None, progress=None: meta() if "/meta/" in url else {"studies": {"OSD-9": {"study_files": []}}})
     assert osdr.describe(9)["raw_only"]
 
 
@@ -122,7 +122,7 @@ def test_choose_genome_validates_against_identifiers(tmp_path, monkeypatch):
     right = make_genome(tmp_path, "right", [(f"R_RS{i}", "", f"g{i}", s) for i, s in enumerate(seqs)])
     wrong = make_genome(tmp_path, "wrong", [(f"W_RS{i}", "", f"g{i}", s) for i, s in enumerate(seqs)])
     files = {"GCF_1.1": (tmp_path / "right.gff.gz", tmp_path / "right.faa.gz"), "GCF_2.1": (tmp_path / "wrong.gff.gz", tmp_path / "wrong.faa.gz")}
-    monkeypatch.setattr(bacteria, "fetch_genome", lambda key, cache, g=None: files[key])
+    monkeypatch.setattr(bacteria, "fetch_genome", lambda key, cache, g=None, progress=None: files[key])
     rows = [row("GCF_2.1", "Foo bar", "", "reference genome", taxid="10", species_taxid="10"),
             row("GCF_1.1", "Foo bar", "S1", "na", taxid="11", species_taxid="10")]
     info = dict(accessions=[], accession_digits=[], taxa={"10": "Foo bar"}, organisms=["Foo bar"], strains=[])
@@ -143,7 +143,7 @@ def test_choose_genome_prefers_better_named_candidate_within_margin(tmp_path, mo
     named = make_genome(tmp_path, "named", [(f"N{i}", "", f"g{i}", s) for i, s in enumerate(seqs[:8])])     # recognises 8/10
     other = make_genome(tmp_path, "other", [(f"N{i}", "", f"g{i}", s) for i, s in enumerate(seqs[:9])])     # recognises 9/10
     files = {"GCF_1.1": (tmp_path / "named.gff.gz", tmp_path / "named.faa.gz"), "GCF_2.1": (tmp_path / "other.gff.gz", tmp_path / "other.faa.gz")}
-    monkeypatch.setattr(bacteria, "fetch_genome", lambda key, cache, g=None: files[key])
+    monkeypatch.setattr(bacteria, "fetch_genome", lambda key, cache, g=None, progress=None: files[key])
     rows = [row("GCF_1.1", "Foo bar", "S1", taxid="11", species_taxid="10"), row("GCF_2.1", "Foo bar", "", "reference genome", taxid="10", species_taxid="10")]
     info = dict(accessions=[], accession_digits=[], taxa={"10": "Foo bar"}, organisms=["Foo bar"], strains=["S1"])
     ids = [f"N{i}" for i in range(10)]
@@ -163,11 +163,11 @@ def test_hub_only_build_cache_and_mapper(tmp_path, monkeypatch):
     mk = lambda key, tag, drop: make_genome(tmp_path, key, [(f"{tag}{i}", "", f"g{i}", mutate(rng, s, 0.1)) for i, s in enumerate(base) if i != drop])  # noqa: E731
     reg = {k: dict(label=k.upper(), species=f"Sp {k}", acc=f"GCF_{n}.1", osds=[n]) for n, k in enumerate("abc", 1)}
     prots = {"a": mk("a", "A_", 5), "b": mk("b", "B_", 4), "c": mk("c", "C_", 3)}
-    monkeypatch.setattr(bacteria, "fetch_genome", lambda key, cache, g=None: (tmp_path / f"{key}.gff.gz", tmp_path / f"{key}.faa.gz"))
+    monkeypatch.setattr(bacteria, "fetch_genome", lambda key, cache, g=None, progress=None: (tmp_path / f"{key}.gff.gz", tmp_path / f"{key}.faa.gz"))
     out, cache = tmp_path / "out", tmp_path / "cache"
     msgs = []
     bacteria.build_set(reg, str(out), str(cache), hub="a", hub_only=True, threads=1, progress=msgs.append, sensitivity="sensitive")
-    assert sum("orthologs" in m for m in msgs) == 2                     # hub-only: n-1 comparisons
+    assert sum(m.startswith("[") and "Comparing" in m for m in msgs) == 2     # hub-only: n-1 comparisons
     assert not (out / "pairs" / "b__c.tsv").exists()
     m = bacteria.Mapper(str(out))
     assert m.hub == "a" and m.key_for("OSD-2") == "b" and m.key_for("C") == "c" and m.key_for(3) == "c"
@@ -193,3 +193,85 @@ def test_mapper_how(tmp_path):
     assert m.how("A_1", "A", "A_RS1") == "old"
     assert m.how("ARS1", "A", "A_RS1") == "nounderscore"
     assert m.how("A_RS1_at", "A", "A_RS1") == "other"
+
+
+# ---- progress logging ----
+
+from gene_lingo.progress import StepLog  # noqa: E402
+
+
+def test_steplog_fraction_and_lines():
+    seen = []
+    log = StepLog(lambda line, frac: seen.append(frac))
+    log("[1/4] Loading A")
+    log("    detail line")
+    log("[3/4] Comparing A with B")
+    assert log.steps == 2 and seen == [0.0, 0.0, 0.5]                # steps before the current one are done
+    assert log.lines[0].endswith("[1/4] Loading A") and "s] " in log.lines[0]
+    assert log.text(last=1).endswith("Comparing A with B")
+    log.finish("done")
+    assert log.fraction == 1.0 and log.lines[-1].endswith("done")
+
+
+def test_fetch_genome_uses_cache_without_network(tmp_path, monkeypatch):
+    for ext in ("genomic.gff.gz", "protein.faa.gz"):
+        (tmp_path / f"GCF_000000009.1_ASMx_{ext}").write_bytes(b"x" * 1000)
+    monkeypatch.setattr(bacteria.urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("network used")))
+    msgs = []
+    reg = {"g": dict(acc="GCF_000000009.1", label="G")}
+    gff, faa = bacteria.fetch_genome("g", str(tmp_path), reg, progress=msgs.append)
+    assert gff.endswith("genomic.gff.gz") and faa.endswith("protein.faa.gz")
+    assert [m.strip().split()[0] for m in msgs] == ["using", "using"] and "cached" in msgs[0] and "MB" in msgs[0]
+    local = {"l": dict(acc="", gff="a.gff.gz", faa="b.faa.gz")}
+    msgs.clear()
+    assert bacteria.fetch_genome("l", str(tmp_path), local, progress=msgs.append) == ("a.gff.gz", "b.faa.gz")
+    assert "your local files" in msgs[0]
+
+
+def test_download_reports_source_and_size(tmp_path, monkeypatch):
+    import io
+    monkeypatch.setattr(bacteria.urllib.request, "urlopen", lambda url, timeout=0: io.BytesIO(b"y" * 2_000_000))
+    msgs = []
+    bacteria._download("https://example.org/x/file.gz", str(tmp_path / "file.gz"), msgs.append)
+    assert msgs[0].strip() == "downloading file.gz from https://example.org/x/file.gz"
+    assert "downloaded file.gz: 2.00 MB" in msgs[1] and (tmp_path / "file.gz").exists() and not (tmp_path / "file.gz.part").exists()
+
+
+@pytest.mark.skipif(not shutil.which("diamond"), reason="diamond not installed")
+def test_comparison_log_is_detailed_and_cache_is_reported(tmp_path, monkeypatch):
+    rng = random.Random(21)
+    base = [prot_seq(rng) for _ in range(5)]
+    a = make_genome(tmp_path, "a", [(f"A_{i}", "", f"g{i}", s) for i, s in enumerate(base)])
+    b = make_genome(tmp_path, "b", [(f"B_{i}", "", f"g{i}", mutate(rng, s, 0.1)) for i, s in enumerate(base)])
+    specs = {"a": dict(label="Alpha", acc="GCF_000000001.1"), "b": dict(label="Beta", acc="GCF_000000002.1")}
+    msgs = []
+    r = bacteria._cached_rbh(str(tmp_path / "cache"), specs, a, b, str(tmp_path / "w"), progress=msgs.append, threads=1, sensitivity="sensitive")
+    text = "\n".join(msgs)
+    for needle in ("built the DIAMOND search index of Alpha (5 proteins)", "aligning every protein of Alpha against Beta",
+                   "Alpha -> Beta:", "Beta -> Alpha:", "reciprocal (each is the other's best hit): 5 ortholog pairs", "saved the result to"):
+        assert needle in text, needle
+    assert len(r) == 5
+    msgs.clear()
+    bacteria._cached_rbh(str(tmp_path / "cache"), specs, a, b, str(tmp_path / "w2"), progress=msgs.append, threads=1, sensitivity="sensitive")
+    assert len(msgs) == 1 and "reusing the saved comparison" in msgs[0]
+
+
+def test_osdr_lookup_log_names_urls_and_decisions(monkeypatch, tmp_path):
+    names = ["GLDS-9_rna_seq_FeatureCounts_Unnormalized_Counts_GLbulkRNAseq.csv"]
+    files = {"studies": {"OSD-9": {"study_files": [{"file_name": n, "remote_url": "/d/" + n} for n in names]}}}
+    monkeypatch.setattr(osdr, "_get", lambda url: json.dumps(meta() if "/meta/" in url else files).encode())
+    msgs = []
+    info = osdr.describe(9, str(tmp_path), progress=msgs.append)
+    text = "\n".join(msgs)
+    assert "fetching https://osdr.nasa.gov/osdr/data/osd/meta/9" in text and "fetching https://osdr.nasa.gov/osdr/data/osd/files/9" in text
+    assert "organism: Vibrio fischeri strain ES114 (NCBI taxon 312309); strain: ES114" in text
+    assert "assembly named in the study's description: GCF_000011805.1" in text and "1 files in the study; gene tables: GLDS-9_rna_seq" in text
+    msgs.clear()
+    osdr.describe(9, str(tmp_path), progress=msgs.append)                      # second time: from the saved copy
+    assert any("using the saved copy of https://osdr.nasa.gov/osdr/data/osd/meta/9" in m for m in msgs)
+    info["urls"][names[0]] = "https://osdr.nasa.gov/d/x.csv"
+    monkeypatch.setattr(osdr, "_head_size", lambda url: "1234")
+    monkeypatch.setattr(osdr, "_get", lambda url: b'"","s1"\n"G_1",1\n"G_2",2\n')
+    msgs.clear()
+    assert osdr.table_ids(info, progress=msgs.append)[0] == ["G_1", "G_2"]
+    assert "downloading gene table" in msgs[0] and "https://osdr.nasa.gov/d/x.csv" in msgs[0] and "read 2 identifiers" in msgs[1]

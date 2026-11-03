@@ -4,7 +4,7 @@ import re
 import streamlit as st
 
 from gene_lingo import genomes, osdr
-from gene_lingo.ui import METHOD, build_and_show
+from gene_lingo.ui import METHOD, build_and_show, run_logged, show_saved_log
 
 st.set_page_config(page_title="Any OSDR study - gene-lingo", layout="wide")
 st.title("Any OSDR study")
@@ -16,26 +16,31 @@ txt = st.text_input("OSDR studies", "OSD-554, OSD-138, OSD-305", help="Numbers o
 override = st.text_area("Override genomes (optional), one per line: `OSD-305 = GCF_000422085.1` or `OSD-90 = Mycobacterium marinum M`", height=70)
 studies = [osdr.osd_number(x) for x in re.split(r"[\s,;]+", txt) if x]
 
+sig = tuple(studies)
 if st.button("Look up studies", type="primary", disabled=not studies):
-    try:
-        with st.status("Reading OSDR metadata and checking genomes...", expanded=True) as status:
+    ok, res = run_logged("osdr_lookup_log", "Looking up the studies", lambda log: osdr.genomes_for(studies, progress=log), sig)
+    if not ok:   # network / unknown study / no genome
+        st.error(str(res))
+    else:
+        registry, picks = res
+        try:
             idx = genomes.assembly_index()
-            registry, picks = osdr.genomes_for(studies, progress=status.write, index=idx)
-            status.update(label="Done", state="complete", expanded=False)
-        over = {}
-        for line in override.splitlines():
-            if "=" in line:
-                o, spec = line.split("=", 1)
-                over[osdr.osd_number(o)] = genomes.parse_genome_arg(spec, index=idx)
-        for n, (key, spec) in over.items():
-            if n in picks:
-                registry[picks[n]["acc"]]["osds"].remove(n)
-                picks[n].update(acc=key, label=spec["label"], species=spec["species"], confidence="you chose it", evidence="override")
-                registry.setdefault(key, dict(spec, osds=[]))["osds"].append(n)
-        registry = {k: v for k, v in registry.items() if v["osds"]}
-        st.session_state["osdr_lookup"] = (studies, registry, picks)
-    except Exception as e:  # network / unknown study / no genome
-        st.error(str(e))
+            over = {}
+            for line in override.splitlines():
+                if "=" in line:
+                    o, spec = line.split("=", 1)
+                    over[osdr.osd_number(o)] = genomes.parse_genome_arg(spec, index=idx)
+            for n, (key, spec) in over.items():
+                if n in picks:
+                    registry[picks[n]["acc"]]["osds"].remove(n)
+                    picks[n].update(acc=key, label=spec["label"], species=spec["species"], confidence="you chose it", evidence="override")
+                    registry.setdefault(key, dict(spec, osds=[]))["osds"].append(n)
+            registry = {k: v for k, v in registry.items() if v["osds"]}
+            st.session_state["osdr_lookup"] = (studies, registry, picks)
+        except Exception as e:  # bad override
+            st.error(str(e))
+else:
+    show_saved_log("osdr_lookup_log", sig)
 
 state = st.session_state.get("osdr_lookup")
 if state and state[0] == studies:

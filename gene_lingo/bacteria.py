@@ -9,6 +9,7 @@ through a hub genome and also directly for every pair of genomes.  Needs the `di
 building one from names or from OSDR study ids).
 """
 import csv
+import glob
 import gzip
 import itertools
 import json
@@ -17,6 +18,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 
@@ -47,24 +49,52 @@ def genome_for_osd(osd):
 
 # ---- download ----------------------------------------------------------------
 
-def fetch_genome(key, cache, genomes=None):
+def _mb(path):
+    return os.path.getsize(path) / 1e6
+
+
+def _download(url, dest, note):
+    name = os.path.basename(dest)
+    note(f"    downloading {name} from {url}")
+    t = time.time()
+    tmp = dest + ".part"
+    with urllib.request.urlopen(url, timeout=120) as r, open(tmp, "wb") as out:
+        shutil.copyfileobj(r, out)
+    os.replace(tmp, dest)
+    note(f"    downloaded {name}: {_mb(dest):.2f} MB in {time.time() - t:.1f} s")
+
+
+def fetch_genome(key, cache, genomes=None, progress=None):
     """Download genomic.gff.gz and protein.faa.gz for genomes[key] (default GENOMES); return their paths.
 
-    A spec with local `gff` and `faa` paths (gzipped) is used as is, without any download.
+    A spec with local `gff` and `faa` paths (gzipped) is used as is, without any download.  Files already in
+    `cache` are reused without contacting NCBI.  `progress(msg)` is told about every lookup and download.
     """
+    note = progress or (lambda msg: None)
     spec = (genomes or GENOMES)[key]
     if spec.get("gff") and spec.get("faa"):
+        note(f"    using your local files {spec['gff']} and {spec['faa']}")
         return spec["gff"], spec["faa"]
     acc = spec["acc"]
+    exts = ("genomic.gff.gz", "protein.faa.gz")
+    os.makedirs(cache, exist_ok=True)
+    found = [sorted(glob.glob(os.path.join(cache, f"{acc}_*_{ext}"))) for ext in exts]
+    if all(found):
+        paths = tuple(f[0] for f in found)
+        for p in paths:
+            note(f"    using cached {os.path.basename(p)} ({_mb(p):.2f} MB)")
+        return paths
     folder = f"{FTP}/{acc[:3]}/{acc[4:7]}/{acc[7:10]}/{acc[10:13]}/"
+    note(f"    looking up the assembly folder of {acc} at {folder}")
     with urllib.request.urlopen(folder, timeout=60) as r:
         name = re.search(rf'href="({acc}_[^"/]+)/"', r.read().decode()).group(1)
-    os.makedirs(cache, exist_ok=True)
     paths = []
-    for ext in ("genomic.gff.gz", "protein.faa.gz"):
+    for ext in exts:
         dest = os.path.join(cache, f"{name}_{ext}")
-        if not os.path.exists(dest):
-            urllib.request.urlretrieve(f"{folder}{name}/{name}_{ext}", dest)
+        if os.path.exists(dest):
+            note(f"    using cached {os.path.basename(dest)} ({_mb(dest):.2f} MB)")
+        else:
+            _download(f"{folder}{name}/{name}_{ext}", dest, note)
         paths.append(dest)
     return tuple(paths)
 
@@ -179,28 +209,48 @@ def _best_hits(path, min_cov, min_id):
     return best
 
 
-def rbh(a, b, work, threads=4, min_cov=0.5, min_id=0.0, sensitivity="very-sensitive"):
-    """Reciprocal best hits between Proteomes a and b -> {tag_a: (tag_b, pident)}."""
+def _count_lines(path):
+    with open(path) as fh:
+        return sum(1 for _ in fh)
+
+
+def rbh(a, b, work, threads=4, min_cov=0.5, min_id=0.0, sensitivity="very-sensitive", progress=None, names=None):
+    """Reciprocal best hits between Proteomes a and b -> {tag_a: (tag_b, pident)}.
+
+    `names` (label_a, label_b) are only used in the progress messages."""
+    note = progress or (lambda msg: None)
+    na, nb = names or (a.key, b.key)
     os.makedirs(work, exist_ok=True)
     files = {}
-    for p in (a, b):
+    for p, n in ((a, na), (b, nb)):
+        t = time.time()
         fa = os.path.join(work, f"{p.key}.faa")
         p.write_fasta(fa)
         subprocess.run(["diamond", "makedb", "--in", fa, "-d", os.path.join(work, p.key), "--quiet"], check=True)
         files[p.key] = fa
+        note(f"    built the DIAMOND search index of {n} ({len(p.cds):,} proteins) in {time.time() - t:.1f} s")
     ab, ba = (os.path.join(work, f"{x.key}_vs_{y.key}.tsv") for x, y in ((a, b), (b, a)))
-    _diamond(files[a.key], os.path.join(work, b.key), ab, threads, sensitivity)
-    _diamond(files[b.key], os.path.join(work, a.key), ba, threads, sensitivity)
+    for q, s_, qn, sn, out in ((a, b, na, nb, ab), (b, a, nb, na, ba)):
+        t = time.time()
+        note(f"    aligning every protein of {qn} against {sn} (DIAMOND {sensitivity}, e-value <= 1e-5)")
+        _diamond(files[q.key], os.path.join(work, s_.key), out, threads, sensitivity)
+        note(f"    {qn} -> {sn}: {_count_lines(out):,} alignments in {time.time() - t:.1f} s")
     fwd, rev = _best_hits(ab, min_cov, min_id), _best_hits(ba, min_cov, min_id)
-    return {q: (s, pid) for q, (s, _, pid) in fwd.items() if rev.get(s, (None,))[0] == q}
+    res = {q: (s_, pid) for q, (s_, _, pid) in fwd.items() if rev.get(s_, (None,))[0] == q}
+    note(f"    best hit per protein (covering >= {min_cov:.0%} of both): {len(fwd):,} for {na}, {len(rev):,} for {nb}")
+    note(f"    reciprocal (each is the other's best hit): {len(res):,} ortholog pairs")
+    return res
 
 
-def _cached_rbh(cache, specs, a, b, work, **kw):
+def _cached_rbh(cache, specs, a, b, work, progress=None, **kw):
     """rbh() with results kept in <cache>/rbh keyed by assembly accession and thresholds, so adding a
     genome to a set only computes the new pairs.  Local-file genomes are not cached."""
+    note = progress or (lambda msg: None)
+    names = tuple(specs[k].get("label", k) for k in (a.key, b.key))
     accs = [specs[k].get("acc") for k in (a.key, b.key)]
     if not all(accs) or any(specs[k].get("gff") for k in (a.key, b.key)):
-        return rbh(a, b, work, **kw)
+        note("    (your own files: this comparison is not cached)")
+        return rbh(a, b, work, progress=note, names=names, **kw)
     sig = f"c{kw.get('min_cov', 0.5)}_i{kw.get('min_id', 0.0)}_{kw.get('sensitivity', 'very-sensitive')}"
     flip = accs[0] > accs[1]
     x, y = (b, a) if flip else (a, b)
@@ -208,13 +258,21 @@ def _cached_rbh(cache, specs, a, b, work, **kw):
     if os.path.exists(path):
         with open(path) as fh:
             rows = [(r[0], r[1], float(r[2])) for r in csv.reader(fh, delimiter="\t")]
+        note(f"    reusing the saved comparison {os.path.relpath(path, cache)}: {len(rows):,} ortholog pairs, no search needed")
     else:
-        res = rbh(x, y, work, **kw)
+        res = rbh(x, y, work, progress=note, names=(names[1], names[0]) if flip else names, **kw)
         rows = [(t, v[0], v[1]) for t, v in res.items()]
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as fh:
             csv.writer(fh, delimiter="\t", lineterminator="\n").writerows(rows)
+        note(f"    saved the result to {os.path.relpath(path, cache)} for next time")
     return {t: (u, pid) for t, u, pid in rows} if not flip else {u: (t, pid) for t, u, pid in rows}
+
+
+def _plan(keys, hub, hub_only):
+    """The genome pairs to compare and the number of progress steps (loads + comparisons + the final write)."""
+    todo = [(hub, k) for k in keys if k != hub] if hub_only else list(itertools.combinations(keys, 2))
+    return todo, len(keys) + len(todo) + 1
 
 
 def build(cache, work, keys=None, hub=HUB, genomes=None, hub_only=False, progress=None, **kw):
@@ -229,15 +287,20 @@ def build(cache, work, keys=None, hub=HUB, genomes=None, hub_only=False, progres
     specs = genomes or GENOMES
     keys = list(keys or specs)
     note = progress or (lambda msg: None)
-    prot = {}
+    todo, total = _plan(keys, hub, hub_only)
+    label = lambda k: specs[k].get("label", k)  # noqa: E731
+    prot, step = {}, 0
     for k in keys:
-        note(f"loading {specs[k].get('label', k)}")
-        prot[k] = Proteome(k, *fetch_genome(k, cache, specs))
+        step += 1
+        note(f"[{step}/{total}] Loading {label(k)}" + (f" ({specs[k]['acc']})" if specs[k].get("acc") else ""))
+        gff, faa = fetch_genome(k, cache, specs, progress=note)
+        prot[k] = Proteome(k, gff, faa)
+        note(f"    read {os.path.basename(gff)}: {len(prot[k].cds):,} proteins with locus tags")
     pair = {}
-    todo = [(hub, k) for k in keys if k != hub] if hub_only else list(itertools.combinations(keys, 2))
-    for i, (a, b) in enumerate(todo, 1):
-        note(f"orthologs {i}/{len(todo)}: {specs[a].get('label', a)} vs {specs[b].get('label', b)}")
-        pair[(a, b)] = _cached_rbh(cache, specs, prot[a], prot[b], os.path.join(work, f"{a}__{b}"), **kw)
+    for a, b in todo:
+        step += 1
+        note(f"[{step}/{total}] Comparing {label(a)} with {label(b)}")
+        pair[(a, b)] = _cached_rbh(cache, specs, prot[a], prot[b], os.path.join(work, f"{a}__{b}"), progress=note, **kw)
     hub_map = {}
     for k in keys:
         if k == hub:
@@ -254,10 +317,16 @@ def build_set(registry, outdir, cache, hub=None, hub_only=False, threads=4, prog
     if len(registry) < 2:
         raise ValueError("need at least two genomes")
     hub = hub if hub in registry else next(iter(registry))
+    note = progress or (lambda msg: None)
     with tempfile.TemporaryDirectory() as work:
         prot, hub_map, pair = build(cache, work, hub=hub, genomes=registry, hub_only=hub_only,
-                                    progress=progress, threads=threads, **kw)
+                                    progress=note, threads=threads, **kw)
+    total = _plan(list(registry), hub, hub_only)[1]
+    note(f"[{total}/{total}] Writing the result tables to {outdir}")
     write_tables(outdir, prot, hub_map, pair, hub, registry)
+    note(f"    wrote hub.tsv ({len(prot[hub].cds):,} {registry[hub].get('label', hub)} genes), core.tsv "
+         f"({len(species_core(hub_map, registry)):,} genes with an ortholog in every species), genes.tsv.gz, "
+         f"genomes.json and {len(pair)} pair file(s)")
     return prot, hub_map, pair
 
 

@@ -9,12 +9,66 @@ import pandas as pd
 import streamlit as st
 
 from . import bacteria
+from .progress import StepLog
 
 
 # A free host has little memory and 1-2 cores: one build at a time, and a cap on genomes per build
 # (set GENE_LINGO_MAX_GENOMES to change it, e.g. on your own machine).
 BUILD_LOCK = threading.Lock()
 MAX_GENOMES = int(os.environ.get("GENE_LINGO_MAX_GENOMES", "12"))
+
+
+LIVE_LINES = 14      # lines of the running log shown while work is in progress
+LOG_HEIGHT = 300     # height of the scrollable full log, in pixels
+_MILESTONE = re.compile(r"\] \[(\d+)/(\d+)\] (.*)")
+
+
+def run_logged(key, label, fn, sig=None):
+    """Run fn(progress) under a live status box and keep the full log on the page afterwards.
+
+    While running: a progress bar (steps are the engine's "[k/T]" messages) and the latest log lines.
+    When finished (or failed) the whole timestamped log stays visible in a scrollable box, and is saved in
+    session state under `key`, so show_saved_log() can draw it again on later reruns.
+    Returns (True, result) or (False, exception).
+    """
+    log = StepLog()
+    with st.status(label, expanded=True) as status:
+        bar = st.progress(0.0, text="Starting")
+        live = st.empty()
+        state = {"step": "Starting"}
+
+        def sink(line, fraction):
+            m = _MILESTONE.search(line)
+            if m:
+                state["step"] = f"Step {m.group(1)} of {m.group(2)}: {m.group(3)}"
+            bar.progress(min(fraction, 1.0), text=state["step"])
+            live.code(log.text(last=LIVE_LINES), language=None, wrap_lines=True)
+
+        log.sinks.append(sink)
+        ok, result = True, None
+        try:
+            result = fn(log)
+            log.finish(f"Finished in {log.elapsed():.1f} s")
+            end_label, end_state = f"{label}: finished in {log.elapsed():.0f} s ({log.steps} steps)", "complete"
+        except Exception as e:  # network, DIAMOND, unknown study, ...
+            ok, result = False, e
+            log.finish(f"FAILED: {e}")
+            end_label, end_state = f"{label}: failed after {log.elapsed():.0f} s", "error"
+        live.empty()
+        bar.progress(1.0 if ok else log.fraction, text="Finished" if ok else "Stopped by an error")
+        status.update(label=end_label, state=end_state, expanded=True)
+        st.code(log.text(), language=None, wrap_lines=True, height=LOG_HEIGHT)
+    st.session_state[key] = dict(label=end_label, state=end_state, lines=list(log.lines), sig=sig)
+    return ok, result
+
+
+def show_saved_log(key, sig=None):
+    """Draw the log kept by run_logged() (if it belongs to the same inputs), so it survives reruns."""
+    saved = st.session_state.get(key)
+    if not saved or saved.get("sig") != sig:
+        return
+    with st.status(saved["label"], state=saved["state"], expanded=True):
+        st.code("\n".join(saved["lines"]), language=None, wrap_lines=True, height=LOG_HEIGHT)
 
 
 def read_names(upload, text):
@@ -171,22 +225,24 @@ def build_and_show(registry, hub, hub_only, key, about="", cache=None):
     if too_many:
         st.error(f"This server builds at most {MAX_GENOMES} genomes at a time (you gave {n}). "
                  "Use fewer genomes, or run the command line tool on your own machine for larger sets.")
+    ran = False
     if st.button("Build mapping", type="primary", disabled=n < 2 or too_many, key=f"{key}_build"):
         if not BUILD_LOCK.acquire(blocking=False):
             st.warning("Another build is running on this server. Try again in a minute.")
             return
         outdir = tempfile.mkdtemp(prefix="gene_lingo_")
         try:
-            with st.status("Building ortholog tables...", expanded=True) as status:
-                bacteria.build_set(registry, outdir, os.path.join(cache, "genomes"), hub, hub_only,
-                                   min(4, os.cpu_count() or 1), progress=status.write)
-                status.update(label="Done", state="complete", expanded=False)
-        except Exception as e:  # network / diamond / bad genome
-            st.error(str(e))
-            return
+            ok, res = run_logged(f"{key}_log", "Building ortholog tables", lambda log: bacteria.build_set(
+                registry, outdir, os.path.join(cache, "genomes"), hub, hub_only, min(4, os.cpu_count() or 1), progress=log), sig)
         finally:
             BUILD_LOCK.release()
+        ran = True
+        if not ok:
+            st.error(str(res))
+            return
         st.session_state[f"{key}_built"] = (sig, outdir)
+    if not ran:
+        show_saved_log(f"{key}_log", sig)
     built = st.session_state.get(f"{key}_built")
     if not (built and built[0] == sig):
         return

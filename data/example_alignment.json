@@ -1,0 +1,113 @@
+{
+ "query": {
+  "tag": "PA14_RS00005",
+  "genome": "GCF_000014625.1",
+  "symbol": "dnaA",
+  "product": "chromosomal replication initiator protein DnaA",
+  "length": 514
+ },
+ "subject_genome": "GCF_000009045.1",
+ "params": {
+  "program": "DIAMOND blastp --very-sensitive",
+  "evalue": 1e-05,
+  "min_coverage": 0.5
+ },
+ "forward": [
+  {
+   "subject": "BSU_00010",
+   "symbol": "dnaA",
+   "product": "chromosomal replication initiator informational ATPase",
+   "pident": 38.4,
+   "aligned": 508,
+   "query_len": 514,
+   "subject_len": 446,
+   "query_coverage": 0.98,
+   "subject_coverage": 0.98,
+   "evalue": 2.63e-116,
+   "bitscore": 347.0,
+   "passes_coverage": true
+  },
+  {
+   "subject": "BSU_28980",
+   "symbol": "dnaI",
+   "product": "helicase loader",
+   "pident": 26.1,
+   "aligned": 119,
+   "query_len": 514,
+   "subject_len": 311,
+   "query_coverage": 0.22,
+   "subject_coverage": 0.38,
+   "evalue": 4.25e-07,
+   "bitscore": 48.5,
+   "passes_coverage": false
+  }
+ ],
+ "reverse": [
+  {
+   "subject": "PA14_RS00005",
+   "symbol": "dnaA",
+   "product": "chromosomal replication initiator protein DnaA",
+   "pident": 38.6,
+   "aligned": 508,
+   "query_len": 446,
+   "subject_len": 514,
+   "query_coverage": 0.98,
+   "subject_coverage": 0.98,
+   "evalue": 1.43e-115,
+   "bitscore": 346.0,
+   "passes_coverage": true
+  },
+  {
+   "subject": "PA14_RS21175",
+   "symbol": "hda",
+   "product": "DnaA regulatory inactivator Hda",
+   "pident": 23.4,
+   "aligned": 192,
+   "query_len": 446,
+   "subject_len": 234,
+   "query_coverage": 0.42,
+   "subject_coverage": 0.77,
+   "evalue": 4.65e-11,
+   "bitscore": 60.1,
+   "passes_coverage": false
+  }
+ ],
+ "reverse_query": "BSU_00010",
+ "reciprocal": true,
+ "alignment": {
+  "subject": "BSU_00010",
+  "pident": 38.4,
+  "length": 508,
+  "columns_shown": 180,
+  "qstart": 3,
+  "qend": 508,
+  "sstart": 5,
+  "send": 441,
+  "identical": 195,
+  "similar": 103,
+  "gaps": 73,
+  "blocks": [
+   {
+    "q": "VELWQQCVDLLRDELPSQQFNTWIRPLQVEA-EGDELRVYAPNRFVLDWVNEKYLGRLLE",
+    "m": "::|| | :  :  :|    | ||::  :  : :|| | : ||| |  ||:  :||  : :",
+    "s": "LDLWNQALAQIEKKLSKPSFETWMKSTKAHSLQGDTLTITAPNEFARDWLESRYLHLIAD",
+    "qpos": 3,
+    "spos": 5
+   },
+   {
+    "q": "LLGERGEGQLPALSLLIGSKRSRTPRAAIVPSQTHVAPPPPVAXXXAPVQPVSAAPVVVP",
+    "m": " : |           | | : |                                   |:|",
+    "s": "TIYE-----------LTGEELSIK--------------------------------FVIP",
+    "qpos": 62,
+    "spos": 65
+   },
+   {
+    "q": "REELPPVTTAPSVSSDPYEPEEPSIDPLAAAMPAGAAPAVRTERNVQVEGALKHTSYLNR",
+    "m": ": :                     ::           |  : :: |: : :    : || ",
+    "s": "QNQ--------------------DVEDFM--------PKPQVKKAVKEDTSDFPQNMLNP",
+    "qpos": 122,
+    "spos": 82
+   }
+  ]
+ }
+}

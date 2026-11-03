@@ -110,16 +110,19 @@ st.write("On top of that, *P. aeruginosa* is strain PAO1 in some studies and PA1
 st.header("What the real data looks like")
 st.subheader("GeneLab count tables")
 st.write("Each row is a gene, each column a sample, each number a count of sequencing reads.")
-c1, c2, c3 = st.columns(3)
-with c1:
-    st.caption("**OSD-554**, *P. aeruginosa* PA14")
-    st.code('"", "4.1","4.2","4.3","4.4"\n"PA14_RS00005",186,184,304,225\n"PA14_RS00010",68,270,600,254\n"PA14_RS00015",86,89,309,144', language=None)
-with c2:
-    st.caption("**OSD-138**, *B. subtilis* 168")
-    st.code('"", "..._Rep1","..._Rep2"\n"BSU_24060",8019,6017\n"BSU_28509",646,523\n...\n"trnSL-Arg2",56,66   <- tRNA\n"trnS-Ser",3852,2569 <- tRNA', language=None)
-with c3:
-    st.caption("**OSD-305**, *Serratia liquefaciens*")
-    st.code("Locus Tag      Sample 1  Sample 2\nM495_RS00005   14694     8601\nM495_RS00010   5451      3370", language=None)
+st.caption("**OSD-554**, *P. aeruginosa* PA14 (first 5 samples)")
+st.dataframe(pd.DataFrame({"gene": ["PA14_RS00005", "PA14_RS00010", "PA14_RS00015"], "4.1": [186, 68, 86], "4.2": [184, 270, 89],
+                           "4.3": [304, 600, 309], "4.4": [225, 254, 144], "4.6": [413, 343, 239]}), hide_index=True, width="stretch")
+st.caption("**OSD-138**, *B. subtilis* 168 (first 3 samples). Highlighted rows are tRNA genes.")
+t138 = pd.DataFrame({"gene": ["BSU_24060", "BSU_28509", "BSU_12770", "trnSL-Arg2", "trnS-Ser", "trnY-Glu"],
+                     "Bsub_168_cells_FLT_Rep1": [8019, 646, 14, 56, 3852, 1486], "Rep2": [6017, 523, 10, 66, 2569, 1248],
+                     "Rep3": [9464, 754, 40, 58, 2135, 968]})
+st.dataframe(t138.style.apply(
+    lambda r: ["background-color: rgba(255,170,0,.22)" if r["gene"].startswith("trn") else "" for _ in r], axis=1),
+    hide_index=True, width="stretch")
+st.caption("**OSD-305**, *Serratia liquefaciens* (first 3 samples; imported from GEO, so the first column is called `Locus Tag`)")
+st.dataframe(pd.DataFrame({"Locus Tag": ["M495_RS00005", "M495_RS00010", "M495_RS00015"], "Sample 1": [14694, 5451, 9488],
+                           "Sample 2": [8601, 3370, 5855], "Sample 3": [5390, 1859, 2942]}), hide_index=True, width="stretch")
 st.write("The tRNA rows in OSD-138 show why a protein-based method drops non-coding genes: they have names, not locus "
          "tags, and no protein. The OSD-305 tags follow RefSeq with a prefix of their own (`M495_RS`), so you cannot "
          "guess the species from the format alone.")
@@ -127,15 +130,20 @@ st.write("The tRNA rows in OSD-138 show why a protein-based method drops non-cod
 st.subheader("Older microarray studies: probe IDs instead of locus tags")
 st.write("OSD-14 (*P. aeruginosa* PAO1, Affymetrix chip) lists probe sets. A gene probe contains the PAO1 locus tag. "
          "Control and intergenic probes do not.")
-st.code("ProbesetID                SYMBOL   ENTREZID\nPA0001_dnaA_at            dnaA     NA\n"
-        "ig_901934_901046_at       NA       NA      <- intergenic region, no gene\n"
-        "AFFX-Bsubtilis_dapB_at    NA       NA      <- control spike-in probe", language=None)
+st.dataframe(pd.DataFrame({
+    "ProbesetID": ["PA0001_dnaA_at", "ig_901934_901046_at", "AFFX-Bsubtilis_dapB_at"],
+    "SYMBOL": ["dnaA", "NA", "NA"], "ENTREZID": ["NA", "NA", "NA"],
+    "what it is": ["a gene probe (contains the PAO1 locus tag)", "intergenic region, no gene", "control spike-in probe"]}),
+    hide_index=True, width="stretch")
 st.warning("The other annotation columns of the OSD-14 and OSD-15 tables are filled with *yeast* gene names (such as "
            "`YEL002C`), the wrong organism. The probe ID is the only usable key.")
 st.write("OSD-43 (*E. coli*, Affymetrix) is a mixed chip: one probe set can carry IDs from two *E. coli* strains at once. "
          "OSD-31 and 39 (*R. rubrum*) give a reporter plus its 60-letter oligo sequence.")
-st.code("ProbesetID     SYMBOL         ENTREZID\n1759170_s_at   ECs5237|pepA   913804|948791    <- OSD-43: two strains' IDs in one probe\n\n"
-        "RruA0001   83591341   CCATGTCGTTCAAGGAGCAGTTCCGCAGCG…    <- OSD-31/39 reporter + oligo", language=None)
+st.dataframe(pd.DataFrame({
+    "study": ["OSD-43", "OSD-31 / 39"], "ID": ["1759170_s_at", "RruA0001"], "SYMBOL": ["ECs5237|pepA", ""],
+    "ENTREZ / extra": ["913804|948791", "protein 83591341, oligo CCATGTCGTTCAAGGAGCAGTTCCGCAGCG…"],
+    "what it is": ["one probe set carries IDs of two E. coli strains", "reporter name plus its 60-letter oligo sequence"]}),
+    hide_index=True, width="stretch")
 
 st.subheader("The annotation: where locus tags meet proteins")
 st.write("For each genome the method downloads an annotation (GFF) and a protein file (FASTA) from NCBI. One PA14 gene, "
@@ -162,9 +170,75 @@ st.markdown(
     f"| {badge('rrub_11170', 'RruA0001')} | {badge('rrub_11170', 'Rru_A0001')} → {badge('rrub_11170', 'RRU_RS00005')} | reporter name, then old name |")
 
 st.subheader("Step 3. Match proteins between species by reciprocal best hit")
-st.write("Compare every protein in species A against species B, and the reverse. Two genes count as the same only if each "
-         "is the other's best match. Live from the project's table for PA14 against *B. subtilis* (`pident` is the "
-         "percentage of identical amino acids):")
+st.write("This step answers: *which protein in species B is the counterpart of this protein in species A?* "
+         "It has four parts, shown here with one real protein, *dnaA* of *P. aeruginosa* PA14, compared with every "
+         "protein of *B. subtilis*.")
+
+EX = ROOT / "data" / "example_alignment.json"
+if EX.exists():
+    import json
+    ex = json.loads(EX.read_text())
+    al, q = ex["alignment"], ex["query"]
+    fwd, rev = ex["forward"], ex["reverse"]
+
+    st.markdown("**a) A protein is a string of letters.** Each letter is one of 20 amino acids. "
+                f"PA14's {q['symbol']} protein is {q['length']} letters long. Two proteins that descend from a common "
+                "ancestor keep many of the same letters in the same places, even after hundreds of millions of years.")
+
+    st.markdown("**b) Alignment: line the two proteins up and score the match.** The tool slides one protein against the other, "
+                "allowing gaps, to find the arrangement with the best score. This is the real alignment of the two *dnaA* proteins "
+                f"(first {al['columns_shown']} of {al['length']} columns; the first line is PA14, the last line *B. subtilis*):")
+    legend = "`|` identical letter, `:` similar amino acid, blank = different, `-` = gap"
+    lines = []
+    for b in al["blocks"]:
+        lines += [f"PA14 {b['qpos']:>4}  {b['q']}", f"          {b['m']}", f"BSU  {b['spos']:>4}  {b['s']}", ""]
+    st.code("\n".join(lines).rstrip(), language=None)
+    st.caption(legend)
+    ident = al["identical"] / al["length"]
+    st.write(f"Over the whole alignment of {al['length']} columns, {al['identical']} are identical (**{ident:.1%}**, the "
+             f"`pident` value), {al['similar']} more are similar, and {al['gaps']} gap characters were needed. "
+             "Each pair of letters scores by how often that swap is seen between related proteins (the standard BLOSUM62 table), "
+             "so identical or similar letters add to the score and unlikely swaps and gaps subtract. The total is the "
+             f"**bit score** ({fwd[0]['bitscore']:.0f}). The **e-value** ({fwd[0]['evalue']:.1e}) is the number of alignments this good "
+             "you would expect by pure chance in a search this size, so smaller is better; the tool only keeps hits at 1e-5 or below. "
+             "**Coverage** is how much of each protein lines up: a match must cover at least half of both proteins, so a short shared "
+             "fragment does not count.")
+
+    st.markdown(f"**c) Best hit: search all {len(M.genes[HUB].cds):,} *B. subtilis* proteins and rank them.** Every protein of PA14 is searched against "
+                "every protein of *B. subtilis* with DIAMOND, a program that is much faster than the classic BLAST: it looks for short "
+                "exact word matches first and extends only the promising ones (about 3 seconds for a pair of bacterial genomes on 4 "
+                f"cores). For {q['tag']} the hits that pass the e-value cut-off, best first:")
+    st.dataframe(pd.DataFrame([{"B. subtilis protein": h["subject"], "gene": h["symbol"], "% identical": h["pident"],
+                                "bit score": h["bitscore"], "e-value": f"{h['evalue']:.1e}",
+                                "covers (PA14 / BSU)": f"{h['query_coverage']:.0%} / {h['subject_coverage']:.0%}",
+                                "kept?": "yes, best hit" if i == 0 and h["passes_coverage"] else ("no: covers too little" if not h["passes_coverage"] else "no: not the best")}
+                               for i, h in enumerate(fwd)]), hide_index=True, width="stretch")
+
+    st.caption("Coverage here is the share of each protein's letters that line up. The tool's rule divides the alignment length "
+               "(which also counts gap columns) by each protein's length; the two differ by a few percent when there are gaps.")
+    st.markdown("**d) Reciprocal: ask the question back.** The best hit in one direction is not enough: every protein has a closest relative "
+                "in the other species, even when its true counterpart is missing. So the search is repeated from "
+                f"*B. subtilis* {ex['reverse_query']} against all PA14 proteins:")
+    st.dataframe(pd.DataFrame([{"PA14 protein": h["subject"], "gene": h["symbol"], "% identical": h["pident"], "bit score": h["bitscore"],
+                                "e-value": f"{h['evalue']:.1e}", "covers (BSU / PA14)": f"{h['query_coverage']:.0%} / {h['subject_coverage']:.0%}",
+                                "kept?": "yes, best hit" if i == 0 and h["passes_coverage"] else "no"} for i, h in enumerate(rev)]),
+                 hide_index=True, width="stretch")
+    if ex["reciprocal"]:
+        st.success(f"{q['tag']} picks {fwd[0]['subject']}, and {fwd[0]['subject']} picks {q['tag']} back. "
+                   "Each is the other's best hit, so they are called orthologs. The tiny identity difference between the two "
+                   f"directions ({fwd[0]['pident']}% and {rev[0]['pident']}%) is normal: the two searches align slightly differently.")
+    with st.expander("Why not simply take the best hit one way?"):
+        st.write("Imagine a gene that exists in *P. aeruginosa* but was lost in *B. subtilis*. Searching one way it still gets a "
+                 "best hit, a distant relative from a different gene family. Searching back from that relative, its best hit "
+                 "is its own true partner, not the first gene, so the pair is rejected. Requiring both directions removes most "
+                 "such false matches. It cannot remove all of them: in gene families it can still pick the wrong member "
+                 "(see the limits at the bottom).")
+else:
+    st.write("Compare every protein in species A against species B, and the reverse. Two genes count as the same only if each "
+             "is the other's best match.")
+
+st.write("Repeating this for every protein of PA14 gives the ortholog table. Its first rows, live from the project's table "
+         "(`pident` is the percentage of identical amino acids):")
 pair = M.pair("paer_pa14", HUB)
 st.dataframe(pd.DataFrame([(k, v[0], v[1]) for k, v in list(pair.items())[:5]], columns=["PA14", "B. subtilis", "pident"]),
              hide_index=True, width="stretch")

@@ -65,6 +65,11 @@ def stubs(tmp_path, monkeypatch):
 
     def fake_build_set(registry, outdir, cache, hub=None, hub_only=False, threads=4, progress=None, **kw):
         built.append((sorted(registry), hub))
+        progress("[1/3] Loading F. bar S1 (GCF_000000001.1)")
+        progress("    downloading F_genomic.gff.gz from https://ftp.ncbi.nlm.nih.gov/x/F_genomic.gff.gz")
+        progress("[2/3] Comparing F. bar S1 with B. qux S2")
+        progress("    reciprocal (each is the other's best hit): 3 ortholog pairs")
+        progress("[3/3] Writing the result tables")
         hub_map = {"GCF_000000002.1": {h: (v[0], v[1]) for h, v in pair[("GCF_000000001.1", "GCF_000000002.1")].items()}}
         bacteria.write_tables(outdir, prot, hub_map, pair, "GCF_000000001.1", registry)
 
@@ -83,13 +88,26 @@ def test_any_genomes_page(stubs):
     assert not at.exception, at.exception
     assert stubs == [(["GCF_000000001.1", "GCF_000000002.1"], "GCF_000000001.1")]
     assert any("in all 2 species" in s.value for s in at.subheader)             # results appear after the build
+    log = [c.value for c in at.code if "Loading F. bar S1" in c.value]
+    assert log and "downloading F_genomic.gff.gz from https://ftp.ncbi.nlm.nih.gov" in log[0] and "Finished in" in log[0]
+    assert "[ " in log[0] or "s] " in log[0]                                    # every line is timestamped
+    # the finished log must not vanish when the user keeps working (any later widget change reruns the page)
+    at.text_area(key="any_text").set_value("F_0").run()
+    assert not at.exception, at.exception
+    assert any("Loading F. bar S1" in c.value and "Finished in" in c.value for c in at.code)
 
 
 def test_any_osdr_page(stubs, monkeypatch):
     info = dict(organisms=["Foo bar"], strains=["S1"], tables=[("t.csv", "counts")])
     picks = {7: dict(acc="GCF_000000001.1", label="F. bar S1", species="Foo bar", confidence="validated", evidence="9/10 ids", info=info),
              8: dict(acc="GCF_000000002.1", label="B. qux S2", species="Baz qux", confidence="strain", evidence="name", info=dict(info, tables=[]))}
-    monkeypatch.setattr(osdr, "genomes_for", lambda studies, **k: ({k_: dict(v, osds=list(v["osds"])) for k_, v in REG.items()}, picks))
+    def fake_lookup(studies, progress=None, **k):
+        progress("[1/3] Loading the NCBI assembly index")
+        progress("[2/3] OSD-7: reading the study and choosing its genome")
+        progress("    fetching https://osdr.nasa.gov/osdr/data/osd/meta/7")
+        return {k_: dict(v, osds=list(v["osds"])) for k_, v in REG.items()}, picks
+
+    monkeypatch.setattr(osdr, "genomes_for", fake_lookup)
     at = AppTest.from_file(str(Path(PAGE).parent / "4_Any_OSDR_study.py"), default_timeout=60).run()
     assert not at.exception, at.exception
     at.text_input[0].set_value("OSD-7, 8").run()
@@ -97,10 +115,19 @@ def test_any_osdr_page(stubs, monkeypatch):
     assert not at.exception, at.exception
     rows = at.dataframe[0].value.to_dict("records")
     assert [r["Study"] for r in rows] == ["OSD-7", "OSD-8"] and rows[1]["Gene table"] == "raw reads only"
+    lookup_log = lambda: [c.value for c in at.code if "fetching https://osdr.nasa.gov/osdr/data/osd/meta/7" in c.value]  # noqa: E731
+    assert lookup_log() and "Finished in" in lookup_log()[0]
+    at.checkbox(key="osdr_hubonly").check().run()                                # any later interaction reruns the page
+    assert lookup_log(), "the look-up log must stay on the page"
     build = [b for b in at.button if b.label == "Build mapping"][0]
     build.click().run()
     assert not at.exception, at.exception
     assert stubs and any("in all 2 species" in s.value for s in at.subheader)
+    at.text_area(key="osdr_any_text").set_value("F_0").run()
+    assert any("Loading F. bar S1" in c.value for c in at.code)                 # build log still shown
+    # and a changed study list hides the old logs (they belong to the old inputs)
+    at.text_input[0].set_value("OSD-99").run()
+    assert not any("Loading F. bar S1" in c.value for c in at.code)
 
 
 # ---- explanation page (reads the committed tables in data/bacteria) ----
@@ -117,6 +144,19 @@ def test_explanation_page_renders_with_live_examples():
     assert any("is an old name for" in s.value for s in at.success)
     table = at.dataframe[-1].value
     assert table.loc[table["Genome"] == "B. subtilis 168", "Locus tag"].iloc[0] == "BSU_00010"
+
+
+def test_explanation_shows_count_tables_and_protein_matching():
+    at = AppTest.from_file(EXPL, default_timeout=90).run()
+    assert not at.exception, at.exception
+    frames = [d.value for d in at.dataframe]
+    assert any(list(f.columns)[:2] == ["gene", "4.1"] and list(f["gene"])[0] == "PA14_RS00005" for f in frames)      # count table is a table
+    assert any("trnS-Ser" in list(f.get("gene", [])) for f in frames)
+    assert not any("PA14_RS00005\",186" in c.value for c in at.code)                                                # no comma-separated text
+    text = " ".join(m.value for m in at.markdown)
+    assert "Alignment: line the two proteins up" in text and "Reciprocal: ask the question back" in text
+    assert any("picks BSU_00010, and BSU_00010 picks PA14_RS00005 back" in s.value for s in at.success)
+    assert any("|" in c.value and "PA14" in c.value and "BSU" in c.value for c in at.code)                           # the real alignment
 
 
 def test_explanation_try_it_unknown_and_probe():
