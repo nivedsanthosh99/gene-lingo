@@ -60,6 +60,10 @@ def _genomes(a, w):
         for r in genomes.find_assemblies(a.query or None, a.taxid, cache, a.n):
             w.writerow([r["acc"], r["organism"], r["strain"], r["category"], r["level"], r["taxid"]])
         return
+    if a.gcmd == "update-index":
+        rows = genomes.assembly_index(cache, force=True, dest=a.out)
+        print(f"index rebuilt: {len(rows)} assemblies", file=sys.stderr)
+        return
     idx = genomes.assembly_index(cache)
     registry = dict(genomes.parse_genome_arg(x, cache, idx) for x in a.specs)
     hub = None
@@ -132,6 +136,9 @@ def main(argv=None):
     gf.add_argument("query", nargs="?", default="")
     gf.add_argument("--taxid")
     gf.add_argument("-n", type=int, default=5)
+    gu = gsub.add_parser("update-index", help="rebuild the RefSeq assembly index from NCBI (~250 MB download)")
+    gu.add_argument("-o", "--out", default=None, help="where to write it (default: the cache; use gene_lingo/data/assembly_index.tsv.gz to refresh the bundled copy)")
+    gu.add_argument("--cache")
     gb = gsub.add_parser("build", help="map genes between genomes (accession, 'Genus species strain', taxid:N, or gff,faa files)")
     gb.add_argument("specs", nargs="+")
     gb.add_argument("--hub", help="genome spec to use as the hub (default: the first)")

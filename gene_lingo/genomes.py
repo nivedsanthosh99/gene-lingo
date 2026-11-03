@@ -20,13 +20,23 @@ def default_cache():
     return os.environ.get("GENE_LINGO_CACHE") or os.path.join(os.path.expanduser("~"), ".cache", "gene-lingo")
 
 
-def assembly_index(cache=None, url=REFSEQ_SUMMARY, force=False):
-    """Slim local copy of NCBI's RefSeq assembly summary: current bacterial/archaeal complete genomes plus
-    all reference/representative genomes.  Downloaded once (~250 MB, streamed) and cached."""
+BUNDLED_INDEX = os.path.join(os.path.dirname(__file__), "data", "assembly_index.tsv.gz")
+
+
+def assembly_index(cache=None, url=REFSEQ_SUMMARY, force=False, dest=None):
+    """Slim copy of NCBI's RefSeq assembly summary: current bacterial/archaeal complete genomes plus all
+    reference/representative genomes (about 93,000 rows, 2 MB).
+
+    Looked up in this order: the cache directory, the copy shipped with the package
+    (gene_lingo/data/assembly_index.tsv.gz), then built from NCBI (~250 MB streamed, once).  `force`
+    rebuilds from NCBI; `dest` chooses where a rebuilt copy is written (default: the cache).
+    """
     cache = cache or default_cache()
-    path = os.path.join(cache, "assembly_index.tsv.gz")
+    path = dest or os.path.join(cache, "assembly_index.tsv.gz")
+    if not force and not os.path.exists(path) and os.path.exists(BUNDLED_INDEX):
+        path = BUNDLED_INDEX
     if force or not os.path.exists(path):
-        os.makedirs(cache, exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         tmp = path + ".part"
         with urllib.request.urlopen(url, timeout=120) as resp, gzip.open(tmp, "wt") as out:
             w = csv.writer(out, delimiter="\t", lineterminator="\n")

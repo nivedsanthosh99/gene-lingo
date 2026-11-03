@@ -1,12 +1,20 @@
 """Streamlit widgets shared by the bacterial pages: gene-mapping form, core/hub views, genome table."""
 import csv
 import io
+import os
 import re
+import threading
 
 import pandas as pd
 import streamlit as st
 
 from . import bacteria
+
+
+# A free host has little memory and 1-2 cores: one build at a time, and a cap on genomes per build
+# (set GENE_LINGO_MAX_GENOMES to change it, e.g. on your own machine).
+BUILD_LOCK = threading.Lock()
+MAX_GENOMES = int(os.environ.get("GENE_LINGO_MAX_GENOMES", "12"))
 
 
 def read_names(upload, text):
@@ -148,7 +156,6 @@ are not in the hub table or the core.
 def build_and_show(registry, hub, hub_only, key, about="", cache=None):
     """'Build mapping' button for a genome registry; shows the results (and a zip of the tables) once built."""
     import json
-    import os
     import tempfile
     import zipfile
 
@@ -160,15 +167,25 @@ def build_and_show(registry, hub, hub_only, key, about="", cache=None):
     pairs = n - 1 if hub_only else n * (n - 1) // 2
     st.caption(f"{n} genomes, {pairs} ortholog comparisons (about {max(1, pairs * 3 // 60)}–{max(2, pairs * 6 // 60)} min the first time; "
                "genomes and finished comparisons are cached).")
-    if st.button("Build mapping", type="primary", disabled=n < 2, key=f"{key}_build"):
+    too_many = n > MAX_GENOMES
+    if too_many:
+        st.error(f"This server builds at most {MAX_GENOMES} genomes at a time (you gave {n}). "
+                 "Use fewer genomes, or run the command line tool on your own machine for larger sets.")
+    if st.button("Build mapping", type="primary", disabled=n < 2 or too_many, key=f"{key}_build"):
+        if not BUILD_LOCK.acquire(blocking=False):
+            st.warning("Another build is running on this server. Try again in a minute.")
+            return
         outdir = tempfile.mkdtemp(prefix="gene_lingo_")
         try:
             with st.status("Building ortholog tables...", expanded=True) as status:
-                bacteria.build_set(registry, outdir, os.path.join(cache, "genomes"), hub, hub_only, 4, progress=status.write)
+                bacteria.build_set(registry, outdir, os.path.join(cache, "genomes"), hub, hub_only,
+                                   min(4, os.cpu_count() or 1), progress=status.write)
                 status.update(label="Done", state="complete", expanded=False)
         except Exception as e:  # network / diamond / bad genome
             st.error(str(e))
             return
+        finally:
+            BUILD_LOCK.release()
         st.session_state[f"{key}_built"] = (sig, outdir)
     built = st.session_state.get(f"{key}_built")
     if not (built and built[0] == sig):

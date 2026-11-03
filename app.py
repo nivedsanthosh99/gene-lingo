@@ -12,7 +12,8 @@ from gene_lingo.species import SPECIES
 
 st.set_page_config(page_title="gene-lingo", layout="wide")
 st.title("gene-lingo")
-st.caption("Convert gene IDs and find orthologs. Same input and output species = ID conversion only.")
+st.caption("Convert gene IDs and find orthologs. Same input and output species = ID conversion only. "
+           "For bacterial OSDR data (locus tags, orthologs between bacterial genomes) use the pages in the sidebar.")
 
 names = [s[0] for s in SPECIES]
 c1, c2, c3, c4 = st.columns(4)
