@@ -101,3 +101,28 @@ def test_any_osdr_page(stubs, monkeypatch):
     build.click().run()
     assert not at.exception, at.exception
     assert stubs and any("in all 2 species" in s.value for s in at.subheader)
+
+
+# ---- explanation page (reads the committed tables in data/bacteria) ----
+
+EXPL = str(Path(PAGE).parent / "0_Explanation.py")
+
+
+def test_explanation_page_renders_with_live_examples():
+    at = AppTest.from_file(EXPL, default_timeout=90).run()
+    assert not at.exception, at.exception
+    assert at.title[0].value == "How genes are matched across bacterial species"
+    assert any("share the same symbol" in m.value for m in at.markdown)           # computed from the tables
+    # default 'Try it' input is an OLD PA14 name: resolved to the current tag and mapped to B. subtilis
+    assert any("is an old name for" in s.value for s in at.success)
+    table = at.dataframe[-1].value
+    assert table.loc[table["Genome"] == "B. subtilis 168", "Locus tag"].iloc[0] == "BSU_00010"
+
+
+def test_explanation_try_it_unknown_and_probe():
+    at = AppTest.from_file(EXPL, default_timeout=90).run()
+    at.text_input[0].set_value("PA14_RS99999").run()
+    assert not at.exception, at.exception
+    assert any("not a gene in any" in w.value for w in at.warning)
+    at.text_input[0].set_value("RruA0001").run()
+    assert any("array probe, reporter or Entrez id" in s.value for s in at.success)

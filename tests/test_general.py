@@ -182,3 +182,14 @@ def test_hub_only_build_cache_and_mapper(tmp_path, monkeypatch):
     bacteria.build_set(reg, str(tmp_path / "out2"), str(cache), hub="a", threads=1, sensitivity="sensitive")   # now all pairs
     assert len(calls) == 1                                                # only b-c is new; a-b and a-c come from the cache
     assert (tmp_path / "out2" / "pairs" / "b__c.tsv").exists()
+
+
+def test_mapper_how(tmp_path):
+    rng = random.Random(1)
+    g = make_genome(tmp_path, "A", [("A_RS1", "A_1", "g1", prot_seq(rng))])
+    m = bacteria.Mapper.__new__(bacteria.Mapper)
+    m.genes = {"A": g}
+    assert m.how("A_RS1", "A", "A_RS1") == "current"
+    assert m.how("A_1", "A", "A_RS1") == "old"
+    assert m.how("ARS1", "A", "A_RS1") == "nounderscore"
+    assert m.how("A_RS1_at", "A", "A_RS1") == "other"

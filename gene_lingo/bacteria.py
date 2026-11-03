@@ -425,6 +425,16 @@ class Mapper:
     def resolve(self, name, key):
         return resolve_input(name, key, self.genes, self.genomes)
 
+    def how(self, name, key, tag):
+        """How the identifier `name` relates to the canonical locus tag `tag`:
+        'current', 'old' (an old_locus_tag), 'nounderscore', or 'other' (array probe, reporter, Entrez id)."""
+        name = name.strip()
+        if name == tag:
+            return "current"
+        if name in self.genes[key].cds[tag]["old"]:
+            return "old"
+        return "nounderscore" if name.replace("_", "") == tag.replace("_", "") else "other"
+
     def detect(self, names, candidates=None):
         return detect_genome(names, self.genes, candidates, self.genomes)
 

@@ -31,7 +31,7 @@ pip install -e ".[ui]"
 streamlit run app.py
 ```
 
-The sidebar has a **How it works** page with the full flowchart, API calls and formats, and three bacterial pages (**Bacterial genomes**, **Any genomes**, **Any OSDR study**, described below). On Streamlit Community Cloud `packages.txt` installs `diamond-aligner` for the build step.
+The sidebar has a **How it works** page with the full flowchart, API calls and formats, an **Explanation** page that walks a beginner through the problem and the method with live examples from the project's data (including a "Try it" translator), and three bacterial pages (**Bacterial genomes**, **Any genomes**, **Any OSDR study**, described below). On Streamlit Community Cloud `packages.txt` installs `diamond-aligner` for the build step.
 
 Pick input/output species and ID types, paste genes or upload a CSV, and download the results table as CSV. Same species = ID conversion; different species = ortholog lookup, with the orthologs shown in your chosen output ID type.
 
