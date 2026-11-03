@@ -235,3 +235,19 @@ def test_summary_page_numbers_are_live():
     text = " ".join(x.value for x in at.markdown)
     assert "9 validated" in text and "PAO1 and PA14 share 5,346 genes" in text
     assert any("Not built" in " ".join(f.astype(str).values.ravel()) for f in [d.value for d in at.dataframe])      # open work is stated
+
+
+def test_explanation_flowchart_and_protein_example_match_the_real_data():
+    import json
+    at = AppTest.from_file(EXPL, default_timeout=90).run()
+    assert not at.exception, at.exception
+    text = " ".join(m.value for m in at.markdown)
+    assert "From files to gene pairs" in " ".join(h.value for h in at.subheader)
+    assert "protein (amino-acid) sequences** are aligned, not the genes' DNA" in text
+    assert "no separate identifier-matching step" in text
+    # the protein start quoted in the table must be consistent with the real alignment stored in the data
+    first = json.loads((ROOT / "data" / "example_alignment.json").read_text())["alignment"]["blocks"][0]
+    bsub = first["s"].replace("-", "")                                    # B. subtilis DnaA from residue 5 on
+    assert first["spos"] == 5 and bsub.startswith("LDLWNQALAQIEK")
+    assert "MENI" + bsub[:13] in text                                      # MENI + LDLWNQALAQIEK = the quoted start
+    assert "MNAYTVSRLALDAGVSV" not in text

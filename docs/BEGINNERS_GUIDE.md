@@ -17,7 +17,7 @@ column is its identifier. A gene can be written in several ways:
 | **Locus tag** | A systematic ID assigned by the genome annotation | `BSU_00010` |
 | **Gene symbol** | A short human-friendly name | `dnaA` |
 | **Probe ID** | An ID from an older microarray chip | `PA0001_dnaA_at` |
-| **Protein sequence** | The amino-acid string the gene codes for | `MNAYTVSRLALDAGVSV...` |
+| **Protein sequence** | The amino-acid string the gene codes for | `MENILDLWNQALAQIEKK...` (start of B. subtilis DnaA) |
 
 GeneLab tables use the **locus tag** (or, for arrays, the probe ID).
 

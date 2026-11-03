@@ -75,7 +75,7 @@ st.markdown(
     f"| **Locus tag** | A systematic ID assigned by the genome annotation | {badge(HUB, 'BSU_00010')} |\n"
     "| **Gene symbol** | A short, human-friendly name | `dnaA` |\n"
     f"| **Probe ID** | An ID from an older microarray chip | {badge('paer_pao1', 'PA0001_dnaA_at')} |\n"
-    "| **Protein sequence** | The amino-acid string the gene codes for | `MNAYTVSRLALDAGVSV…` |")
+    "| **Protein sequence** | The amino-acid string the gene codes for | `MENILDLWNQALAQIEKK…` (start of *B. subtilis* DnaA) |")
 st.write("GeneLab tables use the **locus tag**, or the probe ID for arrays.")
 
 # ---- problem
@@ -176,6 +176,46 @@ digraph G {
 ''')
 st.caption("The whole method for the *between species* problem. Compare with *How strain matching works* for strains of one species.")
 
+st.subheader("From files to gene pairs: where the sequences come from")
+st.graphviz_chart(r'''
+digraph G {
+  rankdir=TB; bgcolor="transparent"; nodesep=0.3; ranksep=0.35; compound=true;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, fillcolor="#eef2f7", color="#6b7c93", fontcolor="#15262c"];
+  edge [fontname="Helvetica", fontsize=10, color="#6b7c93"];
+  subgraph cluster_a { label="Once per genome (files from NCBI)"; fontname="Helvetica"; fontsize=11; fontcolor="#6b7c93"; color="#b8c4d2"; style="rounded,dashed";
+    gff  [label="Annotation file (GFF)\nlocus tag, old tags, symbol,\nprotein accession"];
+    faa  [label="Protein file (FASTA)\nprotein accession -> amino-acid sequence"];
+    join [label="1. Join on protein accession\nPA14_RS00005 -> WP_003109151.1 -> MSVELWQQCVDLL...", fillcolor="#fff4d6"];
+    tbl  [label="Table per genome\nlocus tag -> protein sequence\n(protein-coding genes only)", fillcolor="#dff0e3"];
+    gff -> join; faa -> join; join -> tbl;
+  }
+  subgraph cluster_b { label="Once per pair of genomes (DIAMOND, protein against protein)"; fontname="Helvetica"; fontsize=11; fontcolor="#6b7c93"; color="#b8c4d2"; style="rounded,dashed";
+    al   [label="2. Align the protein sequences (amino acids, not DNA)\nA against B, and B against A"];
+    rbh  [label="Each other's best hit?", shape=diamond, fillcolor="#fff4d6"];
+    pair [label="Ortholog pair of locus tags\nPA14_RS00005 <-> BSU_00010, 38.4% identical", fillcolor="#dff0e3"];
+    none [label="No ortholog found", fillcolor="#f9d9d9"];
+    save [label="Saved: pair tables, hub table, core genes", fillcolor="#dff0e3"];
+    al -> rbh; rbh -> pair [label="yes"]; rbh -> none [label="no"]; pair -> save;
+  }
+  subgraph cluster_c { label="When you look up a gene (instant, no alignment)"; fontname="Helvetica"; fontsize=11; fontcolor="#6b7c93"; color="#b8c4d2"; style="rounded,dashed";
+    inp  [label="You type\nPA14_00010   BSU00010   PA0001_dnaA_at", fillcolor="#dff0e3"];
+    norm [label="3. Normalise to the canonical locus tag\nPA14_00010 -> PA14_RS00005"];
+    look [label="4. Look up the saved pair\n-> BSU_00010 (+ % identical)", fillcolor="#fff4d6"];
+    inp -> norm -> look;
+  }
+  tbl -> al [label="genome A and genome B"];
+  save -> look [style=dashed, label="reads"];
+}
+''')
+st.markdown(
+    "**What is compared.** The **protein (amino-acid) sequences** are aligned, not the genes' DNA. The protein file comes "
+    "from NCBI, which has already translated each gene; the tool does not translate anything and does not use the DNA "
+    "genome file. Proteins stay recognisably similar over much longer evolutionary distances than DNA (many DNA changes "
+    "do not change the protein, and a 20-letter alphabet carries more information than four DNA letters).\n\n"
+    "**Where the locus tags come from.** The protein file only has protein accessions. The annotation file (GFF) says which "
+    "protein belongs to which locus tag, so every sequence is labelled before anything is compared. That is why the result "
+    "of the comparison is already a pair of locus tags, with no separate identifier-matching step afterwards.")
+
 st.subheader("Step 1. Find the right genome for each dataset")
 st.write("OSD-554's description names assembly `GCF_000014625.1` (PA14). The tool checks this against the table: 98% of "
          "the IDs in it are locus tags of that assembly. The rest are tRNA and rRNA genes.")
@@ -201,7 +241,8 @@ if EX.exists():
     al, q = ex["alignment"], ex["query"]
     fwd, rev = ex["forward"], ex["reverse"]
 
-    st.markdown("**a) A protein is a string of letters.** Each letter is one of 20 amino acids. "
+    st.markdown("**a) A protein is a string of letters.** Each letter is one of 20 amino acids, and it is these protein "
+                "sequences that are compared, not the gene's DNA. "
                 f"PA14's {q['symbol']} protein is {q['length']} letters long. Two proteins that descend from a common "
                 "ancestor keep many of the same letters in the same places, even after hundreds of millions of years.")
 
