@@ -31,9 +31,20 @@ pip install -e ".[ui]"
 streamlit run app.py
 ```
 
-The sidebar has a **How it works** page with the full flowchart, API calls and formats, an **Explanation** page that walks a beginner through the problem and the method with live examples from the project's data (including a "Try it" translator), and three bacterial pages (**Bacterial genomes**, **Any genomes**, **Any OSDR study**, described below). On Streamlit Community Cloud `packages.txt` installs `diamond-aligner` for the build step.
+`app.py` only holds the navigation; the pages are in `views/` and registered in `gene_lingo/nav.py` (titles, icons and sections live there). The sidebar is grouped by the question you are asking:
 
-Pick input/output species and ID types, paste genes or upload a CSV, and download the results table as CSV. Same species = ID conversion; different species = ortholog lookup, with the orthologs shown in your chosen output ID type.
+| Section | Page | What it is |
+|---|---|---|
+| Start | **Start here** | The two problems and which page to open |
+| Bacteria: between species | **How species matching works** | Beginner walk-through with flowchart, real data examples, a worked protein alignment and a "Try it" translator |
+| | **Look up genes across species** | Translate and map your gene IDs for the five OSDR species (prebuilt tables) |
+| | **Compare your own genomes** | Build orthologs for any genomes you name |
+| | **Match an OSDR study** | Give OSD numbers; the genome is found and the genes are mapped |
+| Bacteria: between strains | **How strain matching works** | The strain problem, a flowchart, live numbers for every strain pair |
+| | **Compare two strains** | Shared and strain-specific genes, identity histogram, ID translator |
+| Human & animal genes | **Convert gene IDs**, **How the converter works** | The original MyGene.info / Ensembl converter |
+
+Builds on the "Compare your own genomes" and "Match an OSDR study" pages show a live, timestamped log that stays on screen. On Streamlit Community Cloud keep **`app.py`** as the main file; `packages.txt` installs `diamond-aligner` for the build step.
 
 ## Bacterial locus-tag mapping
 
@@ -45,7 +56,7 @@ OSDR bacterial studies use locus tags from different annotations (`PA14_RS00005`
 
 Three ways in, from most to least curated. All need `diamond` only to *build* tables (`sudo apt install diamond-aligner`); mapping and the web UI read the finished tables.
 
-### 1. The curated OSDR set (`gene-lingo bacteria`, page *Bacterial genomes*)
+### 1. The curated OSDR set (`gene-lingo bacteria`, page *Look up genes across species*)
 
 Five species / eight genomes, hand-checked against the identifiers in the OSDR tables; tables are in `data/bacteria/`.
 
@@ -67,7 +78,7 @@ gene-lingo bacteria map --from OSD-554 --to OSD-138 -d data/bacteria PA14_RS0000
 
 `hub.tsv` has one row per *B. subtilis* CDS with an ortholog column per genome, `core.tsv` the 488 genes with an ortholog in all five species, `pairs/<a>__<b>.tsv` the direct hits for all 28 genome pairs, `genes.tsv.gz` every gene with its alternative names, `genomes.json` the genome registry.
 
-### 2. Any genomes, not only OSDR (`gene-lingo genomes`, page *Any genomes*)
+### 2. Any genomes, not only OSDR (`gene-lingo genomes`, page *Compare your own genomes*)
 
 Give accessions, organism/strain names, taxids or your own annotation files; any locus-tag convention works because genes are matched by protein sequence.
 
@@ -80,7 +91,7 @@ gene-lingo bacteria map -d out/ --from "B. subtilis 168" --to GCF_000011805.1 BS
 
 While a build or study look-up runs, the pages and the command line show a timestamped log of every step (which file is fetched from which URL, cache hits, DIAMOND alignments and counts, the choice of genome and why). On the pages the finished log stays on screen. Finished ortholog comparisons are cached by assembly accession, so adding a genome only computes the new pairs; `--hub-only` compares each genome with the hub only (n-1 instead of n(n-1)/2) and other pairs are then derived through the hub.
 
-### 3. Any OSDR study (`gene-lingo osdr`, page *Any OSDR study*)
+### 3. Any OSDR study (`gene-lingo osdr`, page *Match an OSDR study*)
 
 ```
 gene-lingo osdr info OSD-305 OSD-356 OSD-554       # organism, strain, gene table, and the genome chosen with the evidence
@@ -125,6 +136,10 @@ For each study the organism, NCBI taxon and strain come from the OSDR metadata. 
 | OSD-987 | *Streptococcus mutans* | none processed | S. mutans UA159 (`GCF_000007465.2`) | strain name matched |
 
 Studies whose genome is graded below *validated* have no processed gene table on OSDR, so the choice cannot be checked; a wrong strain only matters for strain-specific genes.
+
+### 4. Between strains of one species (page *Compare two strains*)
+
+The same alignment engine, used for the case where both sides are strains of one species (PAO1 vs PA14; *E. coli* K-12, ATCC 4157 and REL606). Proteins are almost identical, so the questions are different: which strain a study used, which genes are shared, which exist in only one strain. `gene_lingo/strains.py` works out the shared and strain-specific genes from the pair tables (for example PAO1 and PA14 share 5,346 genes, median 99.6 % identical, with 226 only in PAO1 and 545 only in PA14). A gene listed as "only in" one strain has no reciprocal best hit in the other, which is not proof of absence. The page *How strain matching works* has the flowchart.
 
 ### Checks and limits
 

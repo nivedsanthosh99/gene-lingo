@@ -6,8 +6,8 @@ import streamlit as st
 from gene_lingo import genomes, osdr
 from gene_lingo.ui import METHOD, build_and_show, run_logged, show_saved_log
 
-st.set_page_config(page_title="Any OSDR study - gene-lingo", layout="wide")
-st.title("Any OSDR study")
+st.set_page_config(page_title="Match an OSDR study - Gene Lingo", layout="wide")
+st.title("Match an OSDR study")
 st.caption("Enter OSDR study numbers. For each, the organism and strain are read from the OSDR metadata, the genome "
            "is chosen (and, when the study has a processed gene table, checked against the identifiers in it), "
            "then genes are mapped between the studies' genomes.")

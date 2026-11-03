@@ -4,8 +4,8 @@ import streamlit as st
 from gene_lingo import genomes
 from gene_lingo.ui import METHOD, build_and_show
 
-st.set_page_config(page_title="Any genomes - gene-lingo", layout="wide")
-st.title("Any genomes")
+st.set_page_config(page_title="Compare your own genomes - Gene Lingo", layout="wide")
+st.title("Compare your own genomes")
 st.caption("Map genes between any bacterial or archaeal genomes. Give organism names, NCBI assembly accessions or your "
            "own annotation files; genes are matched by protein sequence (reciprocal best hits), so any locus-tag "
            "convention works.")

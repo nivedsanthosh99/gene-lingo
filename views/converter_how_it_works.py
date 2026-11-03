@@ -5,8 +5,8 @@ import streamlit as st
 from gene_lingo import ID_TYPES
 from gene_lingo.species import SPECIES
 
-st.set_page_config(page_title="How it works - gene-lingo", layout="wide")
-st.title("How it works")
+st.set_page_config(page_title="How the converter works - Gene Lingo", layout="wide")
+st.title("How the human & animal converter works")
 
 FLOW = r'''
 digraph G {

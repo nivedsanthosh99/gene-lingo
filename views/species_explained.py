@@ -5,14 +5,14 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from gene_lingo import bacteria
+from gene_lingo import bacteria, nav
 from gene_lingo.ui import hub_frame
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data" / "bacteria"
 SURVEY = ROOT / "data" / "osdr_bacterial_survey.tsv"
 
-st.set_page_config(page_title="Explanation - gene-lingo", layout="centered")
+st.set_page_config(page_title="How species matching works - Gene Lingo", layout="centered")
 
 if not (DATA / "genes.tsv.gz").exists():
     st.title("Explanation")
@@ -39,7 +39,7 @@ def badge(key, tag):
 hub_df, others, species = hub_frame(M)
 core_n = int((hub_df["n_species"] == len(species) + 1).sum())
 
-st.title("How genes are matched across bacterial species")
+st.title("How genes are matched between species")
 st.markdown(
     "GeneLab keeps gene-activity measurements from bacteria grown in space and in space-like conditions. To compare "
     "species you first need to know which gene in one species is the same gene in another. This page explains why "
@@ -155,6 +155,26 @@ st.code("gene  483  2027  +  ID=gene-PA14_RS00005; gene=dnaA;\n                 
 st.header("The solution: compare proteins, not names")
 st.write("Related genes in different species code for similar proteins, because they descend from a common ancestor. "
          "A protein's sequence is a fingerprint that does not depend on what anyone called the gene.")
+st.graphviz_chart(r'''
+digraph G {
+  rankdir=TB; bgcolor="transparent"; nodesep=0.3; ranksep=0.4;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, fillcolor="#eef2f7", color="#6b7c93", fontcolor="#15262c"];
+  edge [fontname="Helvetica", fontsize=10, color="#6b7c93"];
+  d  [label="Dataset identifiers\n(locus tags, old tags, probe IDs)", fillcolor="#dff0e3"];
+  g  [label="1. Which genome is each dataset from?\nOSDR metadata, checked against the IDs in its table"];
+  p  [label="2. One protein list per genome\neach protein keeps the dataset's own locus tag"];
+  a  [label="3. Align every protein of A against B, and B against A\n(DIAMOND, e-value <= 1e-5, covering >= 50% of both)"];
+  r  [label="Is each the other's best hit?", shape=diamond, fillcolor="#fff4d6"];
+  o  [label="Ortholog pair\ne.g. PA14_RS00005 = BSU_00010 (38% identical)", fillcolor="#dff0e3"];
+  n  [label="No ortholog found\n(gene missing, or too diverged)", fillcolor="#f9d9d9"];
+  h  [label="4. Everything also written in the hub genome's tags (B. subtilis)\nhub table, core genes, pair tables"];
+  out[label="Result tables + translator", fillcolor="#dff0e3"];
+  d -> g -> p -> a -> r;
+  r -> o [label="yes"]; r -> n [label="no"];
+  o -> h -> out; n -> out;
+}
+''')
+st.caption("The whole method for the *between species* problem. Compare with *How strain matching works* for strains of one species.")
 
 st.subheader("Step 1. Find the right genome for each dataset")
 st.write("OSD-554's description names assembly `GCF_000014625.1` (PA14). The tool checks this against the table: 98% of "
@@ -319,11 +339,7 @@ st.markdown(
     "- **Protein-coding genes only.** tRNA, rRNA and other non-coding entries are not mapped.")
 
 st.header("Where to go next")
-for col, (path, text, icon) in zip(st.columns(3), [
-        ("pages/2_Bacterial_genomes.py", "Bacterial genomes: map your own list", ":material/table_view:"),
-        ("pages/3_Any_genomes.py", "Any genomes: your organisms", ":material/biotech:"),
-        ("pages/4_Any_OSDR_study.py", "Any OSDR study: by OSD number", ":material/science:")]):
-    try:
-        col.page_link(path, label=text, icon=icon)
-    except st.errors.StreamlitPageNotFoundError:   # page run on its own (tests), not through app.py
-        col.write(text)
+for col, key in zip(st.columns(3), ["species_lookup", "species_custom", "species_osdr"]):
+    nav.link(col, key)
+st.write("Comparing two strains of one species is a related but different problem: ")
+nav.link(st, "strains_explained")

@@ -275,3 +275,25 @@ def test_osdr_lookup_log_names_urls_and_decisions(monkeypatch, tmp_path):
     msgs.clear()
     assert osdr.table_ids(info, progress=msgs.append)[0] == ["G_1", "G_2"]
     assert "downloading gene table" in msgs[0] and "https://osdr.nasa.gov/d/x.csv" in msgs[0] and "read 2 identifiers" in msgs[1]
+
+
+# ---- between-strain comparison (uses the committed tables in data/bacteria) ----
+
+from pathlib import Path  # noqa: E402
+
+from gene_lingo import strains  # noqa: E402
+
+
+def test_strains_module_on_the_real_tables():
+    m = bacteria.Mapper(str(Path(__file__).resolve().parents[1] / "data" / "bacteria"))
+    groups = strains.species_groups(m)
+    assert set(groups) == {"Pseudomonas aeruginosa", "Escherichia coli"} and len(groups["Escherichia coli"]) == 3
+    c = strains.compare(m, "paer_pao1", "paer_pa14")
+    assert (len(c["shared"]), len(c["only_a"]), len(c["only_b"])) == (5346, 226, 545)
+    assert c["n_a"] - len(c["only_a"]) == len(c["shared"]) == c["n_b"] - len(c["only_b"])      # every gene is shared or specific
+    assert 99 < c["median_identity"] < 100
+    hist = strains.identity_histogram(c["shared"])
+    assert sum(n for _, n in hist) == len(c["shared"]) and [l for l, _ in hist][0] == "below 90%"
+    assert ("PA0001", "PA14_RS00005") in {(a, b) for a, b, _ in c["shared"]}
+    rows = strains.all_pairs(m)
+    assert len(rows) == 4 and {r["species"] for r in rows} == set(groups)

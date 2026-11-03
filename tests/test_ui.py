@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip("streamlit")
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
-PAGE = str(Path(__file__).resolve().parents[1] / "pages" / "2_Bacterial_genomes.py")
+PAGE = str(Path(__file__).resolve().parents[1] / "views" / "species_lookup.py")
 
 
 def run_map(at, text):
@@ -18,7 +18,7 @@ def run_map(at, text):
 def test_page_renders():
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception, at.exception
-    assert at.title[0].value == "Bacterial genomes"
+    assert at.title[0].value == "Look up genes across species"
     assert any("in all 5 species" in s.value for s in at.subheader)
 
 
@@ -79,7 +79,7 @@ def stubs(tmp_path, monkeypatch):
 
 
 def test_any_genomes_page(stubs):
-    at = AppTest.from_file(str(Path(PAGE).parent / "3_Any_genomes.py"), default_timeout=60).run()
+    at = AppTest.from_file(str(Path(PAGE).parent / "species_custom.py"), default_timeout=60).run()
     assert not at.exception, at.exception
     at.text_area[0].set_value("GCF_000000001.1\nBaz qux S2\nnot a genome").run()
     assert [e.value for e in at.error] and "not a genome" in at.error[0].value
@@ -108,7 +108,7 @@ def test_any_osdr_page(stubs, monkeypatch):
         return {k_: dict(v, osds=list(v["osds"])) for k_, v in REG.items()}, picks
 
     monkeypatch.setattr(osdr, "genomes_for", fake_lookup)
-    at = AppTest.from_file(str(Path(PAGE).parent / "4_Any_OSDR_study.py"), default_timeout=60).run()
+    at = AppTest.from_file(str(Path(PAGE).parent / "species_osdr.py"), default_timeout=60).run()
     assert not at.exception, at.exception
     at.text_input[0].set_value("OSD-7, 8").run()
     at.button[0].click().run()
@@ -132,13 +132,13 @@ def test_any_osdr_page(stubs, monkeypatch):
 
 # ---- explanation page (reads the committed tables in data/bacteria) ----
 
-EXPL = str(Path(PAGE).parent / "0_Explanation.py")
+EXPL = str(Path(PAGE).parent / "species_explained.py")
 
 
 def test_explanation_page_renders_with_live_examples():
     at = AppTest.from_file(EXPL, default_timeout=90).run()
     assert not at.exception, at.exception
-    assert at.title[0].value == "How genes are matched across bacterial species"
+    assert at.title[0].value == "How genes are matched between species"
     assert any("share the same symbol" in m.value for m in at.markdown)           # computed from the tables
     # default 'Try it' input is an OLD PA14 name: resolved to the current tag and mapped to B. subtilis
     assert any("is an old name for" in s.value for s in at.success)
@@ -166,3 +166,61 @@ def test_explanation_try_it_unknown_and_probe():
     assert any("not a gene in any" in w.value for w in at.warning)
     at.text_input[0].set_value("RruA0001").run()
     assert any("array probe, reporter or Entrez id" in s.value for s in at.success)
+
+
+# ---- navigation and the between-strain pages ----
+
+VIEWS = Path(PAGE).parent
+ROOT = VIEWS.parent
+
+
+def test_every_page_in_the_registry_exists_and_titles_are_unique():
+    from gene_lingo import nav
+    titles = [t for _, t, _ in nav.PAGES.values()]
+    assert len(titles) == len(set(titles))
+    for key, (path, title, icon) in nav.PAGES.items():
+        assert (ROOT / path).exists(), path
+    sectioned = [k for keys in nav.SECTIONS.values() for k in keys]
+    assert sorted(sectioned) == sorted(nav.PAGES)                       # each page in exactly one section
+    assert list(nav.SECTIONS) == ["Start", "Bacteria: between species", "Bacteria: between strains", "Human & animal genes"]
+
+
+def test_router_starts_on_the_start_page():
+    at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60).run()
+    assert not at.exception, at.exception
+    assert at.title[0].value == "Gene Lingo"
+    assert any("Two different questions" in h.value for h in at.header)
+
+
+def test_home_numbers_come_from_the_tables():
+    at = AppTest.from_file(str(VIEWS / "home.py"), default_timeout=60).run()
+    assert not at.exception, at.exception
+    assert any("PAO1 and PA14 share 5,346 genes" in c.value for c in at.caption)
+
+
+def test_strains_explained_page():
+    at = AppTest.from_file(str(VIEWS / "strains_explained.py"), default_timeout=60).run()
+    assert not at.exception, at.exception
+    assert at.title[0].value == "How genes are matched between strains"
+    frames = [d.value for d in at.dataframe]
+    summary = next(f for f in frames if "Only in A" in f.columns)
+    assert len(summary) == 4 and summary.loc[0, "Shared"] == 5346 and summary.loc[0, "Only in B"] == 545
+    assert any("T6SS" in " ".join(f.astype(str).values.ravel()) for f in frames)           # real PA14-only genes are shown
+
+
+def test_compare_two_strains_page():
+    at = AppTest.from_file(str(VIEWS / "strains_compare.py"), default_timeout=60).run()
+    assert not at.exception, at.exception
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["Shared"] == "5,346" and metrics["Only in A"] == "226" and metrics["Only in B"] == "545"
+    at.text_area(key="strain_text").set_value("PA0001\nPA0002\nPA9999\nPA0050").run()
+    at.button(key="strain_go").click().run()
+    assert not at.exception, at.exception
+    out = next(d.value for d in at.dataframe if "result" in d.value.columns)
+    assert list(out["result"])[:3] == ["same gene in B", "same gene in B", "not recognised in A"]
+    assert out.loc[0, "locus tag in B"] == "PA14_RS00005"
+    at.selectbox[0].select("Escherichia coli").run()                                       # switching species keeps the page working
+    assert not at.exception, at.exception
+    assert {m.label: m.value for m in at.metric}["Shared"] == "3,889"
+    at.selectbox[2].select("ecol_k12").run()                                                # same strain twice
+    assert any("two different strains" in w.value for w in at.warning)

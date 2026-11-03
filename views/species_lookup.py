@@ -8,11 +8,11 @@ from gene_lingo.ui import METHOD, results
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "bacteria"
 
-st.set_page_config(page_title="Bacterial genomes - gene-lingo", layout="wide")
-st.title("Bacterial genomes")
+st.set_page_config(page_title="Look up genes across species - Gene Lingo", layout="wide")
+st.title("Look up genes across species")
 st.caption("Map locus tags between the genomes behind the OSDR bacterial studies. Orthologs are reciprocal best "
-           "protein hits, so old names, other annotations and array probe ids all work. For other genomes see "
-           "*Any genomes*; for other OSDR studies see *Any OSDR study*.")
+           "protein hits, so old names, other annotations and array probe ids all work. This page covers the five species of "
+           "the OSDR studies; for other organisms use *Compare your own genomes*, and for other studies *Match an OSDR study*.")
 
 if not (DATA / "genes.tsv.gz").exists():
     st.error(f"Mapping tables not found in `{DATA}`. Build them with `gene-lingo bacteria build -o data/bacteria`.")
